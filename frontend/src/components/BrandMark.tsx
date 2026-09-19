@@ -10,7 +10,7 @@ export function BrandMark({ className }: { className?: string }) {
       viewBox="0 0 32 32"
       fill="none"
       role="img"
-      aria-label="AI PPT"
+      aria-label="SlideForge"
       className={cn('shrink-0', className)}
     >
       <rect width="32" height="32" rx="7" fill="#171614" />
