@@ -49,7 +49,63 @@ AI 输出的文字长度不可预测，直接导出很容易出现溢出、缺�
 
 后端内部按照 API 层、领域层、工作流层、渲染层分层，耗时的 AI 任务通过 ARQ 异步队列和 Redis pub/sub 来管理。内容、布局、主题三种数据通过 `shared/` 目录下的 JSON 文件前后端物理共享。
 
+```mermaid
+flowchart TB
+    subgraph Client["浏览器"]
+        FE["React SPA<br/>(编辑器 / 大纲 / 进度)"]
+    end
+
+    subgraph Nginx["Nginx 反向代理"]
+        NG["静态资源 + /api 转发"]
+    end
+
+    subgraph API["FastAPI API 服务"]
+        APIL["API 层（REST + SSE）"]
+        SVCL["服务层（项目 / 大纲 / 编辑 / 导出）"]
+        APIL --> SVCL
+    end
+
+    subgraph WorkerSvc["ARQ Worker"]
+        WKF["工作流层（LangGraph 自纠环）"]
+        RDR["渲染层（python-pptx 导出）"]
+    end
+
+    subgraph Infra["基础设施"]
+        PG[("PostgreSQL<br/>业务数据")]
+        RD[("Redis<br/>任务队列 + pub/sub")]
+    end
+
+    subgraph Shared["shared/（前后端物理共享）"]
+        SH["内容 / 布局 / 主题 JSON"]
+    end
+
+    FE -->|HTTPS| NG -->|/api| APIL
+    FE -.->|SSE 进度推送| APIL
+    APIL -->|读写| PG
+    APIL -->|入队| RD
+    RD -->|消费任务| WKF
+    WKF -->|LLM 调用| WKF
+    WKF -->|事件发布| RD
+    RD -.->|事件订阅| APIL
+    WKF -->|生成结果| PG
+    RDR -->|读主题/布局| SH
+    FE -->|读主题/布局| SH
+```
+
 项目的核心业务流程：注册登录 → 创建项目 → 输入主题或材料 → 生成并确认大纲 → 并发生成页面 → 在线编辑 → 质量检查 → 导出 PPTX。
+
+```mermaid
+flowchart LR
+    A[注册登录] --> B[创建项目]
+    B --> C[输入主题 / 长文本 / 文档]
+    C --> D[生成并确认大纲]
+    D --> E[并发生成页面]
+    E --> F[在线编辑]
+    F --> G[质量检查]
+    G --> H[导出 PPTX]
+    E -.->|失败页可单独重试| E
+    F -.->|可回到生成| D
+```
 
 ## 四、快速运行
 
