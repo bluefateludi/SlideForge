@@ -1,4 +1,4 @@
-# AI PPT 生成器
+# SlideForge · AI PPT 生成器
 
 输入一句主题、粘贴一段长文本，或者上传 PDF、Word、Markdown、TXT 文档，先生成一份可修改的大纲，再并发生成完整页面，最终导出原生可编辑的 PPTX 文件。
 
@@ -122,7 +122,7 @@ flowchart LR
 
 ```bash
 git clone <你的仓库地址>
-cd ai-ppt
+cd SlideForge
 ```
 
 ### 2. 配置环境变量

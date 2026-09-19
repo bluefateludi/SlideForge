@@ -1,7 +1,7 @@
 [project]
-name = "ai-ppt-backend"
+name = "slideforge-backend"
 version = "0.1.0"
-description = "AI PPT Generator API"
+description = "SlideForge - AI PPT Generator API"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi",
