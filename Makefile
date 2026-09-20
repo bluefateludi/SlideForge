@@ -1,4 +1,4 @@
-.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression
+.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval
 
 up:
 	docker compose up -d
@@ -45,6 +45,11 @@ test:
 # 固定回归集：语料 × 3 主题，可编辑性 100% 且溢出槽位比例 < 5%。
 regression:
 	cd backend && uv run python scripts/run_regression.py
+
+# 固定题集评测：HTTP 驱动本地 dev 栈跑主流程，三路评分出整份报告。
+# 需先 make dev（API/worker）与 docker 栈在跑；API 基址等见 scripts/run_eval.py 头注。
+eval:
+	cd backend && uv run python scripts/run_eval.py
 
 lint:
 	cd backend && uv run ruff check .
