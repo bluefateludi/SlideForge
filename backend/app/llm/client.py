@@ -1,6 +1,12 @@
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass
 from typing import TypeVar
 
 from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel, ValidationError
@@ -17,6 +23,60 @@ _PROMPT = ChatPromptTemplate.from_messages(
         ("human", "{user}"),
     ]
 )
+
+
+@dataclass(frozen=True, slots=True)
+class LLMUsageRecord:
+    """一次文本 LLM 调用的工程指标；缺 usage 时 token 记 0。"""
+
+    purpose: str
+    prompt_tokens: int
+    completion_tokens: int
+    elapsed_seconds: float
+
+
+class LLMUsageRecorder:
+    """进程内轻量聚合：评测采集器 / 日志 take 一次即取走并重置。
+
+    线程安全即可（ARQ worker 是单进程事件循环，无跨进程消费方），
+    不做持久化；记录量级是一次生成的调用数，无需淘汰策略。
+    """
+
+    def __init__(self) -> None:
+        self._records: list[LLMUsageRecord] = []
+        self._lock = threading.Lock()
+
+    def add(self, record: LLMUsageRecord) -> None:
+        with self._lock:
+            self._records.append(record)
+
+    def take(self) -> list[LLMUsageRecord]:
+        """取走自上次 take 以来的调用记录并重置（快照语义）。"""
+        with self._lock:
+            records = list(self._records)
+            self._records.clear()
+            return records
+
+
+_recorder = LLMUsageRecorder()
+
+
+def take_usage_records() -> list[LLMUsageRecord]:
+    """消费方入口：读取并重置进程内已累积的 LLM 调用记录。"""
+    return _recorder.take()
+
+
+def reset_usage_recorder() -> None:
+    """清空已累积记录（测试隔离用；take 本身也会重置）。"""
+    _recorder.take()
+
+
+def _extract_usage(message: BaseMessage | None) -> tuple[int, int]:
+    """从 AIMessage 提取 (prompt_tokens, completion_tokens)，缺失记 0。"""
+    usage = getattr(message, "usage_metadata", None)
+    if not usage:
+        return 0, 0
+    return int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
 
 
 def create_chat_model(settings: Settings | None = None) -> ChatOpenAI:
@@ -53,22 +113,43 @@ class StructuredChatClient:
         if not self._api_key.strip():
             raise LLMNotConfiguredError(f"未配置 LLM API Key，无法{purpose}")
 
-        chain = _PROMPT | self._model.with_structured_output(schema, method="json_mode")
+        # include_raw 只为拿到 AIMessage（usage_metadata 在消息上）；解析行为不变
+        chain = _PROMPT | self._model.with_structured_output(
+            schema, method="json_mode", include_raw=True
+        )
+        started = time.monotonic()
         try:
             result = await chain.ainvoke({"system": system, "user": user})
         except Exception as error:
             raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
 
-        if isinstance(result, schema):
-            return result
-        if isinstance(result, BaseModel):
+        raw_message = result.get("raw") if isinstance(result, dict) else None
+        parsed = result.get("parsed") if isinstance(result, dict) else result
+        parsing_error = result.get("parsing_error") if isinstance(result, dict) else None
+        if parsing_error is not None or parsed is None:
+            # 解析失败不记指标，避免污染聚合口径
+            raise InvalidModelOutputError("模型返回内容不符合约定结构")
+
+        prompt_tokens, completion_tokens = _extract_usage(raw_message)
+        _recorder.add(
+            LLMUsageRecord(
+                purpose=purpose,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                elapsed_seconds=time.monotonic() - started,
+            )
+        )
+
+        if isinstance(parsed, schema):
+            return parsed
+        if isinstance(parsed, BaseModel):
             try:
-                return schema.model_validate(result.model_dump())
+                return schema.model_validate(parsed.model_dump())
             except ValidationError as error:
                 raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
-        if isinstance(result, dict):
+        if isinstance(parsed, dict):
             try:
-                return schema.model_validate(result)
+                return schema.model_validate(parsed)
             except ValidationError as error:
                 raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
         raise InvalidModelOutputError("模型返回内容不符合约定结构")
