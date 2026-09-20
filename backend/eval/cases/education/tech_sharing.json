@@ -1,0 +1,11 @@
+{
+  "id": "education/tech_sharing",
+  "input": "生成一份如何做好技术分享的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含结构设计",
+    "包含幻灯片技巧",
+    "包含练习方法"
+  ],
+  "category": "education"
+}

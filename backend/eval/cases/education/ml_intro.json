@@ -1,0 +1,12 @@
+{
+  "id": "education/ml_intro",
+  "input": "生成一份机器学习入门课程第一课的 12 页 PPT",
+  "expected_pages": 12,
+  "requirements": [
+    "包含学习目标",
+    "包含核心概念",
+    "包含示例",
+    "包含小结"
+  ],
+  "category": "education"
+}

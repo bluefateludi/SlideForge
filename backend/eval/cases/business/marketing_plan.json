@@ -1,0 +1,12 @@
+{
+  "id": "business/marketing_plan",
+  "input": "生成一份年度市场营销计划的 12 页 PPT",
+  "expected_pages": 12,
+  "requirements": [
+    "包含目标",
+    "包含渠道组合",
+    "包含预算分配",
+    "包含 KPI"
+  ],
+  "category": "business"
+}

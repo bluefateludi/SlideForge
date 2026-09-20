@@ -1,0 +1,11 @@
+{
+  "id": "business/product_launch",
+  "input": "生成一份新产品发布会方案的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含产品亮点",
+    "包含定价策略",
+    "包含发布节奏"
+  ],
+  "category": "business"
+}

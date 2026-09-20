@@ -1,0 +1,12 @@
+{
+  "id": "business/company_intro",
+  "input": "生成一份科技初创公司介绍的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含公司定位",
+    "包含产品矩阵",
+    "包含团队",
+    "包含里程碑"
+  ],
+  "category": "business"
+}

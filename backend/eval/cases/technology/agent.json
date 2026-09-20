@@ -1,0 +1,11 @@
+{
+  "id": "technology/agent",
+  "input": "生成一份 AI Agent 发展综述的 12 页 PPT",
+  "expected_pages": 12,
+  "requirements": [
+    "包含发展时间线",
+    "包含核心组件",
+    "包含典型框架对比"
+  ],
+  "category": "technology"
+}

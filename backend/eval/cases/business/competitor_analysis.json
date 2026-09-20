@@ -1,0 +1,11 @@
+{
+  "id": "business/competitor_analysis",
+  "input": "生成一份竞品分析报告框架的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含对比维度",
+    "包含结论呈现方式",
+    "包含行动建议"
+  ],
+  "category": "business"
+}
