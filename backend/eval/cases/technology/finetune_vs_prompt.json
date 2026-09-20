@@ -1,0 +1,11 @@
+{
+  "id": "technology/finetune_vs_prompt",
+  "input": "生成一份对比大模型微调与提示工程的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含两者原理",
+    "包含成本对比",
+    "包含选型建议"
+  ],
+  "category": "technology"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "technology/vector_db",
+  "input": "生成一份向量数据库入门的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含基本原理",
+    "包含核心指标（召回率/延迟）",
+    "包含主流产品"
+  ],
+  "category": "technology"
+}

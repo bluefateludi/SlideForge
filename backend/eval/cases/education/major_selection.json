@@ -1,0 +1,11 @@
+{
+  "id": "education/major_selection",
+  "input": "生成一份大学专业选择指南的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含决策因素",
+    "包含常见误区",
+    "包含行动清单"
+  ],
+  "category": "education"
+}

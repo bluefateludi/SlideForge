@@ -1,0 +1,11 @@
+{
+  "id": "technology/rag",
+  "input": "生成一份介绍 RAG 检索增强生成技术的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含 RAG 架构图解",
+    "包含应用场景",
+    "包含优势与限制"
+  ],
+  "category": "technology"
+}

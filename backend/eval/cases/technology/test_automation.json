@@ -1,0 +1,11 @@
+{
+  "id": "technology/test_automation",
+  "input": "生成一份软件测试自动化实践的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含测试金字塔",
+    "包含工具链",
+    "包含落地步骤"
+  ],
+  "category": "technology"
+}

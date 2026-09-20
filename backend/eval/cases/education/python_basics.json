@@ -1,0 +1,11 @@
+{
+  "id": "education/python_basics",
+  "input": "生成一份 Python 基础语法讲解的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "变量、循环、函数各占篇幅",
+    "包含代码示例",
+    "包含练习"
+  ],
+  "category": "education"
+}

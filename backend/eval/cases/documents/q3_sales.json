@@ -1,0 +1,13 @@
+{
+  "id": "documents/q3_sales",
+  "input": "根据提供的材料生成一份《Q3 销售总结》的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含总营收与整体同比",
+    "包含各区域（华东/华南/华北/西部）营收与同比",
+    "包含三条产品线数据",
+    "包含大客户数量与客单价"
+  ],
+  "category": "documents",
+  "source": "q3_sales.md"
+}

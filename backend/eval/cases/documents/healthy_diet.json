@@ -1,0 +1,12 @@
+{
+  "id": "documents/healthy_diet",
+  "input": "根据提供的材料生成一份《健康饮食科普》的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含各类营养素推荐摄入量",
+    "包含膳食比例建议",
+    "包含进食频次建议"
+  ],
+  "category": "documents",
+  "source": "healthy_diet.md"
+}

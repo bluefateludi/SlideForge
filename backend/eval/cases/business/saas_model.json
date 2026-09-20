@@ -1,0 +1,11 @@
+{
+  "id": "business/saas_model",
+  "input": "生成一份 SaaS 商业模式解析的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含收入模式",
+    "包含获客漏斗",
+    "包含留存指标"
+  ],
+  "category": "business"
+}

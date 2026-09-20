@@ -1,0 +1,13 @@
+{
+  "id": "documents/quantum_intro",
+  "input": "根据提供的材料生成一份《量子计算入门》的 8 页 PPT",
+  "expected_pages": 8,
+  "requirements": [
+    "包含关键年份的发展历程",
+    "包含量子比特数演进",
+    "包含纠错开销倍数",
+    "包含实验对比数据"
+  ],
+  "category": "documents",
+  "source": "quantum_intro.md"
+}

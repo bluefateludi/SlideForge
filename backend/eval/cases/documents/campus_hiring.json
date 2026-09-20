@@ -1,0 +1,12 @@
+{
+  "id": "documents/campus_hiring",
+  "input": "根据提供的材料生成一份《校园招聘宣讲》的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含公司基本情况（成立年份/员工数/办公城市）",
+    "包含岗位列表（名称/人数/要求）",
+    "包含薪酬福利数字"
+  ],
+  "category": "documents",
+  "source": "campus_hiring.md"
+}

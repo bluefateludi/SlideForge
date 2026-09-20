@@ -1,0 +1,13 @@
+{
+  "id": "documents/ev_market",
+  "input": "根据提供的材料生成一份《新能源汽车市场综述》的 10 页 PPT",
+  "expected_pages": 10,
+  "requirements": [
+    "包含年销量与增速",
+    "包含渗透率",
+    "包含市占率格局",
+    "包含电池装机量"
+  ],
+  "category": "documents",
+  "source": "ev_market.md"
+}
