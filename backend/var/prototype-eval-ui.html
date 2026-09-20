@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>SlideForge 评测中心 · UI 原型（演示用，非最终实现）</title>
+<style>
+  :root { --ink:#1f2430; --sub:#6b7280; --line:#e5e7eb; --brand:#4f46e5; --bg:#f6f7f9; --ok:#059669; --warn:#d97706; --bad:#dc2626; }
+  * { box-sizing:border-box; margin:0; }
+  body { font:14px/1.6 "Segoe UI","Microsoft YaHei",sans-serif; color:var(--ink); background:var(--bg); }
+  .topbar { display:flex; align-items:center; gap:28px; padding:0 32px; height:56px; background:#fff; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  .topbar .logo { font-weight:700; letter-spacing:.5px; }
+  .topbar a { color:var(--sub); text-decoration:none; padding:4px 2px; border-bottom:2px solid transparent; }
+  .topbar a.on { color:var(--ink); border-bottom-color:var(--brand); font-weight:600; }
+  .wrap { max-width:1080px; margin:0 auto; padding:28px 32px 80px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .desc { color:var(--sub); margin-bottom:24px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:20px 24px; margin-bottom:20px; }
+  table { width:100%; border-collapse:collapse; }
+  th { text-align:left; color:var(--sub); font-weight:500; font-size:13px; padding:10px 12px; border-bottom:1px solid var(--line); }
+  td { padding:12px; border-bottom:1px solid var(--line); }
+  tr:last-child td { border-bottom:none; }
+  tr.click { cursor:pointer; } tr.click:hover td { background:#f9fafb; }
+  .pill { display:inline-block; padding:1px 10px; border-radius:99px; font-size:12px; }
+  .pill.ok { background:#ecfdf5; color:var(--ok); } .pill.bad { background:#fef2f2; color:var(--bad); } .pill.warn { background:#fffbeb; color:var(--warn); }
+  .num { font-variant-numeric:tabular-nums; }
+  .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:20px; }
+  .metric { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px 20px; }
+  .metric .k { color:var(--sub); font-size:12px; } .metric .v { font-size:26px; font-weight:700; margin-top:2px; }
+  .metric .v small { font-size:13px; color:var(--sub); font-weight:400; }
+  .row2 { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+  .bar-row { display:flex; align-items:center; gap:12px; margin:10px 0; }
+  .bar-row .lbl { width:130px; text-align:right; color:var(--sub); font-size:13px; flex:none; }
+  .bar { flex:1; height:18px; background:#f1f2f4; border-radius:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:var(--brand); border-radius:4px; }
+  .bar-row .val { width:52px; font-size:13px; }
+  .ring { position:relative; width:120px; height:120px; margin:6px auto; }
+  .ring svg { transform:rotate(-90deg); }
+  .ring .t { position:absolute; inset:0; display:grid; place-items:center; flex-direction:column; }
+  .ring .t b { font-size:24px; } .ring .t span { font-size:11px; color:var(--sub); }
+  .note { background:#eef2ff; border:1px solid #c7d2fe; color:#3730a3; border-radius:8px; padding:10px 16px; margin-bottom:20px; font-size:13px; }
+  .back { color:var(--brand); text-decoration:none; font-size:13px; display:inline-block; margin-bottom:12px; }
+  .case-head { display:flex; justify-content:space-between; align-items:center; }
+  .tags { display:flex; gap:6px; flex:none; }
+  .tag { font-size:11px; padding:1px 8px; border-radius:4px; background:#f3f4f6; color:var(--sub); }
+  kbd { background:#f3f4f6; border:1px solid var(--line); border-radius:4px; padding:0 6px; font-size:12px; }
+</style>
+</head>
+<body>
+
+<!-- ===== 视图一：评测记录列表（对应路由 /eval） ===== -->
+<div class="topbar">
+  <span class="logo">SlideForge</span>
+  <a href="#">项目</a>
+  <a href="#">新建</a>
+  <a href="#" class="on">评测</a>
+</div>
+<div class="wrap" id="list-view">
+  <h1>评测记录</h1>
+  <p class="desc">每次在命令行运行 <kbd>make eval</kbd> 后，一条记录自动出现在这里。点击查看单次详情。</p>
+
+  <div class="note">⚠️ 这是 UI 原型（演示用），数据是假的，界面方向确认后由正式前端页面实现。</div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>运行时间</th><th>题集</th><th>用例数</th><th>生成成功</th><th>Schema 合法</th><th>需求覆盖</th><th>平均耗时</th><th>Token 消耗</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr class="click" onclick="show(1)">
+          <td class="num">2026-09-20 14:32</td><td>v1（换提示词后）</td><td class="num">20</td>
+          <td class="num">95%</td><td class="num">98%</td><td class="num">8.7 / 10</td><td class="num">32s</td><td class="num">12.4k</td><td><span class="pill ok">完成</span></td>
+        </tr>
+        <tr class="click" onclick="show(2)">
+          <td class="num">2026-09-18 10:05</td><td>v1（基线）</td><td class="num">20</td>
+          <td class="num">90%</td><td class="num">95%</td><td class="num">7.9 / 10</td><td class="num">35s</td><td class="num">11.8k</td><td><span class="pill ok">完成</span></td>
+        </tr>
+        <tr class="click">
+          <td class="num">2026-09-15 16:44</td><td>v1（基线）</td><td class="num">20</td>
+          <td class="num">90%</td><td class="num">90%</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td><span class="pill bad">失败</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ===== 视图二：单次运行详情（对应路由 /eval/:runId） ===== -->
+<div class="wrap" id="detail-view" style="display:none">
+  <a class="back" href="#" onclick="hide();return false;">← 返回评测记录</a>
+  <h1>运行 #1 · 2026-09-20 14:32</h1>
+  <p class="desc">题集 v1 · 20 个用例 · DeepSeek 生成 + DeepSeek 评审 · 总耗时 11 分 40 秒</p>
+
+  <div class="grid">
+    <div class="metric"><div class="k">生成成功率</div><div class="v">95<small>%</small></div></div>
+    <div class="metric"><div class="k">Schema 合法率</div><div class="v">98<small>%</small></div></div>
+    <div class="metric"><div class="k">需求覆盖分</div><div class="v">8.7<small>/10</small></div></div>
+    <div class="metric"><div class="k">幻觉率（文档题）</div><div class="v">4<small>%</small></div></div>
+  </div>
+  <div class="grid" style="grid-template-columns:repeat(4,1fr);">
+    <div class="metric"><div class="k">平均耗时</div><div class="v">32<small>s/题</small></div></div>
+    <div class="metric"><div class="k">平均 Token</div><div class="v">12.4<small>k/题</small></div></div>
+    <div class="metric"><div class="k">失败率</div><div class="v">5<small>%</small></div></div>
+    <div class="metric"><div class="k">重试率</div><div class="v">15<small>%</small></div></div>
+  </div>
+
+  <div class="row2">
+    <div class="card">
+      <div class="case-head"><b>分类得分（均分）</b></div>
+      <div class="bar-row"><span class="lbl">技术类</span><div class="bar"><i style="width:88%"></i></div><span class="val">8.8</span></div>
+      <div class="bar-row"><span class="lbl">商业类</span><div class="bar"><i style="width:85%"></i></div><span class="val">8.5</span></div>
+      <div class="bar-row"><span class="lbl">教育类</span><div class="bar"><i style="width:84%"></i></div><span class="val">8.4</span></div>
+      <div class="bar-row"><span class="lbl">文档类</span><div class="bar"><i style="width:82%"></i></div><span class="val">8.2</span></div>
+    </div>
+    <div class="card" style="display:flex; align-items:center; gap:24px;">
+      <div class="ring">
+        <svg width="120" height="120"><circle cx="60" cy="60" r="50" fill="none" stroke="#eef0f3" stroke-width="12"/><circle cx="60" cy="60" r="50" fill="none" stroke="#4f46e5" stroke-width="12" stroke-linecap="round" stroke-dasharray="274 314"/></svg>
+        <div class="t"><div><b>87</b><br/><span>综合分</span></div></div>
+      </div>
+      <div style="color:var(--sub); font-size:13px;">
+        综合分 = 结构 40% + 内容 40% + 工程表现 20%<br/>（权重可配置，仅为展示口径）
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="case-head"><b>用例明细</b><span class="tags"><span class="tag">20 题</span><span class="tag">19 成功</span><span class="tag">1 失败</span></span></div>
+    <table>
+      <thead><tr><th>#</th><th>题目</th><th>类型</th><th>页数</th><th>需求覆盖</th><th>幻觉率</th><th>耗时</th><th>Token</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td class="num">01</td><td>RAG 技术介绍</td><td><span class="tag">技术</span></td><td class="num">10/10</td><td class="num">9.2</td><td class="num">—</td><td class="num">28s</td><td class="num">11.6k</td><td><span class="pill ok">通过</span></td></tr>
+        <tr><td class="num">02</td><td>AI Agent 发展综述</td><td><span class="tag">技术</span></td><td class="num">12/12</td><td class="num">8.8</td><td class="num">—</td><td class="num">35s</td><td class="num">12.9k</td><td><span class="pill ok">通过</span></td></tr>
+        <tr><td class="num">03</td><td>公司介绍（科技初创）</td><td><span class="tag">商业</span></td><td class="num">8/8</td><td class="num">8.4</td><td class="num">—</td><td class="num">30s</td><td class="num">10.2k</td><td><span class="pill ok">通过</span></td></tr>
+        <tr><td class="num">16</td><td>Q3 销售总结（依据文档）</td><td><span class="tag">文档</span></td><td class="num">8/8</td><td class="num">8.6</td><td class="num">2%</td><td class="num">33s</td><td class="num">13.1k</td><td><span class="pill ok">通过</span></td></tr>
+        <tr><td class="num">19</td><td>量子计算入门（依据文档）</td><td><span class="tag">文档</span></td><td class="num">6/8</td><td class="num">6.1</td><td class="num">11%</td><td class="num">—</td><td class="num">—</td><td><span class="pill bad">失败</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  function show(id){ document.getElementById('list-view').style.display='none'; document.getElementById('detail-view').style.display='block'; window.scrollTo(0,0); }
+  function hide(){ document.getElementById('detail-view').style.display='none'; document.getElementById('list-view').style.display='block'; window.scrollTo(0,0); }
+</script>
+</body>
+</html>
