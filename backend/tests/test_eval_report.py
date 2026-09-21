@@ -245,9 +245,12 @@ class TestFormatReport:
         assert "口径注记" in text
         assert "重试率" in text
 
-    def test_report_token_note_documents_zero_token_scope(self) -> None:
+    def test_report_token_note_documents_trace_join_scope(self) -> None:
         report = build_report(
             [("education/ml_intro", 8, _artifacts("education/ml_intro"), _score())]
         )
         text = format_report(report)
-        assert "worker 进程埋点不可达" in text
+        # obs#4 口径：token 按 trace join spans 聚合；查不到按 0 并标注来源
+        assert "trace join" in text
+        assert "恒 0" not in text
+        assert "worker 进程埋点不可达" not in text

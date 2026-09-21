@@ -5,8 +5,8 @@ POST outline/generate → 轮询 GET outline → POST outline/confirm →
 POST deck/generate → 轮询 GET deck（逐页重试 failed） → GET deck/export。
 
 以轮询代替 SSE 跟进各阶段状态；单题失败不中断整轮（失败原因收进结果）。
-Token 用量埋点在 worker 进程内，HTTP 层取不到（take_usage_records 不可跨
-进程），v1 按 0 记录，报告注明口径。
+Token 用量：抓取 outline/deck 生成 202 响应的 trace_id（obs#1），报告侧
+按 trace join spans 表取真实值（见 app/eval/trace_join.py）。
 """
 
 from __future__ import annotations
@@ -51,8 +51,10 @@ class CaseArtifacts:
     deck_response: dict | None = None
     export_succeeded: bool = False
     elapsed_seconds: float = 0.0
-    prompt_tokens: int = 0  # 口径：worker 进程埋点不可达，v1 恒 0
-    completion_tokens: int = 0
+    # 观测链路锚点（obs#4）：202 响应带回的 trace_id，报告侧据此 join
+    # spans 表取真实 token 与分段耗时；埋点失败时为 None（join 回退 0）
+    outline_trace_id: str | None = None
+    deck_trace_id: str | None = None
     # 重试口径：生成阶段出现过 failed 状态的页数（ARQ 层 job 重试不可见于 HTTP）
     failed_slide_seen: int = 0
     total_slides: int = 0
@@ -199,7 +201,11 @@ class EvalRunner:
         self, project_id: str, artifacts: CaseArtifacts, headers: dict
     ) -> None:
         artifacts.stage = "outline_generate"
-        await self._request("POST", f"/projects/{project_id}/outline/generate", headers=headers)
+        response = await self._request(
+            "POST", f"/projects/{project_id}/outline/generate", headers=headers
+        )
+        # 202 响应带 trace_id（obs#1）：埋点失败时缺字段，保持 None
+        artifacts.outline_trace_id = response.get("trace_id")
 
     async def _wait_outline(self, project_id: str, artifacts: CaseArtifacts, headers: dict) -> int:
         artifacts.stage = "outline_wait"
@@ -232,9 +238,10 @@ class EvalRunner:
         self, project_id: str, case: EvalCase, artifacts: CaseArtifacts, headers: dict
     ) -> dict:
         artifacts.stage = "deck_generate"
-        await self._request(
+        response = await self._request(
             "POST", f"/projects/{project_id}/deck/generate", json={}, headers=headers
         )
+        artifacts.deck_trace_id = response.get("trace_id")
         return await self._wait_deck(project_id, case, artifacts, headers)
 
     async def _wait_deck(

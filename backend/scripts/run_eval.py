@@ -36,6 +36,7 @@ from app.eval.cases import load_cases, pick_smoke_case  # noqa: E402
 from app.eval.evaluator import DeckJudge  # noqa: E402
 from app.eval.persistence import (  # noqa: E402
     compute_cases_version,
+    join_report_traces,
     report_to_run,
     save_run,
 )
@@ -137,12 +138,28 @@ async def _main() -> int:
         score = await score_case(case, item, judge)
         results.append((case.id, case.expected_pages, item, score))
     report = build_report(results)
+    # obs#4：入库前按 trace_id join spans，补真实 token 与分段耗时；
+    # 打印的报告因此含真实值。join 只在能连库时做（EVAL_SKIP_DB 同款开关
+    # 稍后仍会跳过写入，但报告侧数值优先补齐）。
+    joined = False
+    if not os.environ.get("EVAL_SKIP_DB", "").strip():
+        try:
+            from app.core.db import async_session_factory
+
+            async with async_session_factory() as session:
+                await join_report_traces(session, report)
+            joined = True
+        except Exception as error:
+            print(
+                f"[eval] trace join 失败（token 按查不到处理）：{type(error).__name__}: {error}",
+                file=sys.stderr,
+            )
     sys.stdout.write(format_report(report))
-    await _persist_report(report, cases)
+    await _persist_report(report, cases, traces_joined=joined)
     return 0
 
 
-async def _persist_report(report, cases) -> None:
+async def _persist_report(report, cases, *, traces_joined: bool) -> None:
     """报告落库（eval#4）：报告已打印在先，写库失败只报错不影响其输出。"""
     if os.environ.get("EVAL_SKIP_DB", "").strip():
         print("[eval] EVAL_SKIP_DB 已设置，跳过入库", file=sys.stderr)
@@ -153,7 +170,7 @@ async def _persist_report(report, cases) -> None:
     run = report_to_run(
         report,
         cases_version=compute_cases_version(cases),
-        note=os.environ.get("EVAL_NOTE", "").strip(),
+        note=_compose_note(traces_joined),
     )
     try:
         async with async_session_factory() as session:
@@ -166,6 +183,13 @@ async def _persist_report(report, cases) -> None:
         )
     else:
         print(f"[eval] 已写入 eval_runs：{saved.id}", file=sys.stderr)
+
+
+def _compose_note(traces_joined: bool) -> str:
+    """EVAL_NOTE 前置 + token 来源标注：join 未做/失败时在 note 里说明。"""
+    note = os.environ.get("EVAL_NOTE", "").strip()
+    marker = "" if traces_joined else "tokens_source=unavailable（trace join 未执行）"
+    return "；".join(part for part in (note, marker) if part)
 
 
 def _with_v1(api_base: str) -> str:

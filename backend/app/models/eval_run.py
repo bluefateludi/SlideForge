@@ -45,7 +45,8 @@ class EvalRun(Base):
     doc_fabricated_numbers: Mapped[int] = mapped_column(Integer, nullable=False)
     hallucination_rate: Mapped[float | None] = mapped_column(Float)
     avg_elapsed_seconds: Mapped[float] = mapped_column(Float, nullable=False)
-    # 口径：worker 进程埋点不可达，v1 恒 0（见 app/eval/report.py）
+    # 口径：spans 聚合（trace join，见 app/eval/trace_join.py）——成功题的
+    # 每题 token 总和取均值；查不到 trace 的题按 0 参与
     avg_prompt_tokens: Mapped[float] = mapped_column(Float, nullable=False)
     avg_completion_tokens: Mapped[float] = mapped_column(Float, nullable=False)
     total_failed_slides: Mapped[int] = mapped_column(Integer, nullable=False)

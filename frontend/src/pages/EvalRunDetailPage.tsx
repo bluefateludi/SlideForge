@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatPercent,
   formatScore,
+  formatTokens,
   type EvalCaseRow,
   type EvalRunDetail,
 } from '@/features/eval/types'
@@ -208,6 +209,8 @@ function CaseTable({ run }: { run: EvalRunDetail }) {
             <th className="px-4 py-3 text-right">页数达成</th>
             <th className="px-4 py-3 text-right">覆盖分</th>
             <th className="px-4 py-3 text-right">幻觉率</th>
+            <th className="px-4 py-3 text-right">Token</th>
+            <th className="px-4 py-3 text-right">分段耗时</th>
             <th className="px-4 py-3 text-right">耗时</th>
             <th className="px-4 py-3">状态</th>
           </tr>
@@ -225,6 +228,25 @@ function CaseTable({ run }: { run: EvalRunDetail }) {
 function CaseTableRow({ row, index }: { row: EvalCaseRow; index: number }) {
   const status = row.ok ? ROW_STATUS.ok : ROW_STATUS.failed
   const pages = row.expected_pages > 0 ? `${row.ready_pages}/${row.expected_pages}` : '—'
+  const tokens = row.prompt_tokens + row.completion_tokens
+  const tokenText =
+    row.tokens_source === 'trace' ? formatTokens(tokens) : '—'
+  const stages = [
+    row.outline_duration_ms > 0 ? `大纲 ${formatDuration(row.outline_duration_ms / 1000)}` : null,
+    row.slide_durations_ms.length > 0
+      ? `${row.slide_durations_ms.length} 页 × ${formatDuration(
+          row.slide_durations_ms.reduce((sum, ms) => sum + ms, 0) /
+            1000 /
+            row.slide_durations_ms.length,
+        )}`
+      : null,
+    row.export_duration_ms > 0 ? `导出 ${formatDuration(row.export_duration_ms / 1000)}` : null,
+  ].filter(Boolean)
+  const stageText = stages.length > 0 ? stages.join(' · ') : '—'
+  const stageTitle =
+    row.tokens_source === 'trace'
+      ? undefined
+      : 'token 查不到（无 trace 或观测数据缺失），按 0 展示'
 
   return (
     <tr className="border-b border-line last:border-b-0 hover:bg-surface-soft">
@@ -243,6 +265,12 @@ function CaseTableRow({ row, index }: { row: EvalCaseRow; index: number }) {
       <td className="px-4 py-3 text-right tabular-nums">{formatScore(row.judge_coverage)}</td>
       <td className="px-4 py-3 text-right tabular-nums">
         {formatPercent(row.hallucination_rate)}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums" title={stageTitle}>
+        {tokenText}
+      </td>
+      <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap" title={stageTitle}>
+        {stageText}
       </td>
       <td className="px-4 py-3 text-right tabular-nums">{formatDuration(row.elapsed_seconds)}</td>
       <td className="px-4 py-3">

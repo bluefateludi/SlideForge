@@ -36,6 +36,8 @@ def _artifacts(case_id: str, *, ok: bool = True) -> CaseArtifacts:
         elapsed_seconds=60.0,
         total_slides=8,
         failed_slide_seen=0 if ok else 1,
+        outline_trace_id="0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1001" if ok else None,
+        deck_trace_id="0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1002" if ok else None,
     )
 
 
@@ -112,6 +114,14 @@ class TestReportToRun:
         assert doc_row["judge_coverage"] == 0.5
         assert doc_row["judge_score"] == 6.0
         assert doc_row["hallucination_rate"] == 0.2
+        # obs#4：token / 分段耗时 / trace 锚点进明细（join 前默认 0 + unavailable）
+        assert doc_row["prompt_tokens"] == 0
+        assert doc_row["tokens_source"] == "unavailable"
+        assert doc_row["outline_trace_id"] == "0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1001"
+        assert doc_row["deck_trace_id"] == "0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1002"
+        assert doc_row["outline_duration_ms"] == 0
+        assert doc_row["slide_durations_ms"] == []
+        assert doc_row["export_duration_ms"] == 0
         failed_row = run.rows[1]
         assert failed_row["category"] == "technology"
         assert failed_row["ok"] is False
