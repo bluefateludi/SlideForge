@@ -8,6 +8,8 @@ import EvalRunDetailPage from '@/pages/EvalRunDetailPage'
 import EvalRunsPage from '@/pages/EvalRunsPage'
 import ProjectDetailPage from '@/pages/ProjectDetailPage'
 import ProjectsPage from '@/pages/ProjectsPage'
+import TraceDetailPage from '@/pages/TraceDetailPage'
+import TracesPage from '@/pages/TracesPage'
 import { RequireAuth } from '@/routes/RequireAuth'
 
 export default function App() {
@@ -36,6 +38,9 @@ export default function App() {
           {/* 评测页只读，与列表/创作同层进工作区外壳 */}
           <Route path="/eval" element={<EvalRunsPage />} />
           <Route path="/eval/:runId" element={<EvalRunDetailPage />} />
+          {/* trace 页只读，同 eval 套路 */}
+          <Route path="/trace" element={<TracesPage />} />
+          <Route path="/trace/:traceId" element={<TraceDetailPage />} />
         </Route>
 
         {/* 大纲与编辑工作台自带全屏 chrome，不进工作区外壳 */}

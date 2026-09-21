@@ -838,6 +838,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Traces
+         * @description 按 created_at 倒序分页返回 trace 列表（列表页不拉 spans）。
+         */
+        get: operations["list_traces_api_v1_trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trace/metrics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Metrics Summary
+         * @description 时间窗（trace.created_at >= now - days）内的 SQL 侧指标聚合。
+         *
+         *     spans 无独立时间戳/项目维度：一律经 trace_id 关联到窗口内 trace。
+         */
+        get: operations["get_metrics_summary_api_v1_trace_metrics_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/trace/{trace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trace
+         * @description 单条 trace 详情：本体 + spans 全量（按 started_at, id 排序）。
+         */
+        get: operations["get_trace_api_v1_trace__trace_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1498,6 +1560,38 @@ export interface components {
              * @default 0
              */
             elapsed_seconds: number;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Tokens Source
+             * @default unavailable
+             * @enum {string}
+             */
+            tokens_source: "trace" | "unavailable";
+            /** Outline Trace Id */
+            outline_trace_id?: string | null;
+            /** Deck Trace Id */
+            deck_trace_id?: string | null;
+            /**
+             * Outline Duration Ms
+             * @default 0
+             */
+            outline_duration_ms: number;
+            /** Slide Durations Ms */
+            slide_durations_ms?: number[];
+            /**
+             * Export Duration Ms
+             * @default 0
+             */
+            export_duration_ms: number;
         };
         /**
          * EvalCategoryScore
@@ -1683,6 +1777,21 @@ export interface components {
              * @default true
              */
             fonts_precise: boolean;
+        };
+        /**
+         * FailureBreakdownItem
+         * @description 失败来源占比：按失败 span 的 error_code 分组。
+         */
+        FailureBreakdownItem: {
+            /** Error Code */
+            error_code: string;
+            /** Count */
+            count: number;
+            /**
+             * Ratio
+             * @description 占失败 span 总数的比例，保留 3 位小数
+             */
+            ratio: number;
         };
         /** FlexContainer */
         "FlexContainer-Input": {
@@ -1963,6 +2072,23 @@ export interface components {
             /** Credit */
             credit?: string | null;
         };
+        /**
+         * KindSuccessRate
+         * @description 单 kind 的 trace 成功率。
+         */
+        KindSuccessRate: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outline" | "deck";
+            /** Succeeded */
+            succeeded: number;
+            /** Total */
+            total: number;
+            /** Success Rate */
+            success_rate: number;
+        };
         /** KpiBlock */
         KpiBlock: {
             /** Id */
@@ -2069,6 +2195,27 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * NodeStatItem
+         * @description 节点健康度：按 span.name 聚合的失败率与耗时。
+         */
+        NodeStatItem: {
+            /** Name */
+            name: string;
+            /** Total */
+            total: number;
+            /** Failed */
+            failed: number;
+            /** Failure Rate */
+            failure_rate: number;
+            /** Avg Ms */
+            avg_ms?: number | null;
+            /**
+             * Avg Completion Tokens
+             * @description 仅 llm span 参与；无样本为 null
+             */
+            avg_completion_tokens?: number | null;
         };
         /** OutlineGenerateAccepted */
         OutlineGenerateAccepted: {
@@ -2613,6 +2760,58 @@ export interface components {
             locator: string;
         };
         /**
+         * SpanPublic
+         * @description 详情页瀑布的单行：attributes（repair_round 等）原样透传。
+         */
+        SpanPublic: {
+            /** Id */
+            id: number;
+            /**
+             * Trace Id
+             * Format: uuid
+             */
+            trace_id: string;
+            /** Parent Span Id */
+            parent_span_id?: number | null;
+            /** Name */
+            name: string;
+            /**
+             * Span Kind
+             * @enum {string}
+             */
+            span_kind: "task" | "node" | "llm" | "export";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed";
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /** Model */
+            model?: string | null;
+            /** Purpose */
+            purpose?: string | null;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Completion Tokens */
+            completion_tokens?: number | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /** Attributes */
+            attributes?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /**
          * StructureIssue
          * @description 结构问题。
          *
@@ -2811,6 +3010,127 @@ export interface components {
              */
             token_type: string;
             user: components["schemas"]["UserPublic"];
+        };
+        /**
+         * TraceDetail
+         * @description 详情：trace 本体 + spans 全量（按 started_at, id 排序，树由前端自建）。
+         */
+        TraceDetail: {
+            trace: components["schemas"]["TracePublic"];
+            /** Spans */
+            spans: components["schemas"]["SpanPublic"][];
+        };
+        /**
+         * TraceMetricsSummary
+         * @description 时间窗（trace.created_at >= now - days）内的观测聚合。
+         */
+        TraceMetricsSummary: {
+            /** Days */
+            days: number;
+            /**
+             * Deck Duration P50 Ms
+             * @description deck trace 时延 P50；窗口内无已收口 trace 为 null
+             */
+            deck_duration_p50_ms?: number | null;
+            /** Deck Duration P95 Ms */
+            deck_duration_p95_ms?: number | null;
+            /** Trace Success */
+            trace_success: components["schemas"]["KindSuccessRate"][];
+            /**
+             * Slide Total
+             * @default 0
+             */
+            slide_total: number;
+            /**
+             * Slide Succeeded
+             * @default 0
+             */
+            slide_succeeded: number;
+            /**
+             * Slide Success Rate
+             * @description slide[N] task span 口径；窗口内无样本为 null
+             */
+            slide_success_rate?: number | null;
+            /**
+             * Avg Prompt Tokens
+             * @description llm span 平均；无样本为 null
+             */
+            avg_prompt_tokens?: number | null;
+            /** Avg Completion Tokens */
+            avg_completion_tokens?: number | null;
+            /**
+             * Total Prompt Tokens
+             * @default 0
+             */
+            total_prompt_tokens: number;
+            /**
+             * Total Completion Tokens
+             * @default 0
+             */
+            total_completion_tokens: number;
+            /** Failure Breakdown */
+            failure_breakdown: components["schemas"]["FailureBreakdownItem"][];
+            /** Node Stats */
+            node_stats: components["schemas"]["NodeStatItem"][];
+        };
+        /**
+         * TracePage
+         * @description 分页信封：字段照 eval 列表页惯例（items/total），补 limit/offset 便于前端续拉。
+         */
+        TracePage: {
+            /** Items */
+            items: components["schemas"]["TracePublic"][];
+            /**
+             * Total
+             * @description 筛选后的总条数，不受 limit/offset 影响
+             */
+            total: number;
+        };
+        /**
+         * TracePublic
+         * @description 列表行：列表页不拉 spans，只看 trace 一层。
+         */
+        TracePublic: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "outline" | "deck";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Project Id
+             * Format: uuid
+             */
+            project_id: string;
+            /** Job Id */
+            job_id?: string | null;
+            /** Linked Trace Id */
+            linked_trace_id?: string | null;
+            /** Error Code */
+            error_code?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /**
+             * Duration Ms
+             * @description finished_at - started_at，未收口为空
+             */
+            duration_ms?: number | null;
         };
         /** UnlockFlexRequest */
         UnlockFlexRequest: {
@@ -4564,6 +4884,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EvalRunDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_traces_api_v1_trace_get: {
+        parameters: {
+            query?: {
+                status?: string | null;
+                kind?: string | null;
+                project_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TracePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_metrics_summary_api_v1_trace_metrics_summary_get: {
+        parameters: {
+            query?: {
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraceMetricsSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_trace_api_v1_trace__trace_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                trace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TraceDetail"];
                 };
             };
             /** @description Validation Error */

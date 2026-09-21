@@ -12,6 +12,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const location = useLocation()
   const onCreate = location.pathname === '/create'
   const onEval = location.pathname.startsWith('/eval')
+  const onTrace = location.pathname.startsWith('/trace')
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -24,11 +25,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
 
             <nav className="flex items-center gap-1" aria-label="主导航">
-              <NavLink to="/projects" active={!onEval}>
+              <NavLink to="/projects" active={!onEval && !onTrace}>
                 项目
               </NavLink>
               <NavLink to="/eval" active={onEval}>
                 评测
+              </NavLink>
+              <NavLink to="/trace" active={onTrace}>
+                追踪
               </NavLink>
             </nav>
           </div>
