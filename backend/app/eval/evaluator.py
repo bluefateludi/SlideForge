@@ -7,9 +7,8 @@
    结构化输出，逐条 requirement 判定 pass/fail 并给 0-10 总分；
 3. 幻觉评分：仅文档题，app/eval/hallucination 的数字出处核对。
 
-Token 用量口径：埋点在 worker 进程内（take_usage_records 不可跨进程读取），
-HTTP 驱动的评测器无法取到，v1 按 0 记录并在报告注明，待 eval 后续票
-在 API 侧暴露用量后接通。
+Token 用量口径：由 runner 抓 trace_id、报告侧 join spans 表聚合
+（见 app/eval/trace_join.py），本模块不做 token 评分。
 """
 
 from __future__ import annotations

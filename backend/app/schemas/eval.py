@@ -43,6 +43,17 @@ class EvalCaseRow(BaseModel):
     retried_slides: int = 0
     total_slides: int = 0
     elapsed_seconds: float = 0.0
+    # obs#4：trace join spans 聚合的真实 token 与分段耗时
+    # （毫秒；slide_durations_ms 为每页 task span 耗时列表）
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    # "trace"：spans 聚合值；"unavailable"：查不到 trace（按 0 展示）
+    tokens_source: Literal["trace", "unavailable"] = "unavailable"
+    outline_trace_id: uuid.UUID | None = None
+    deck_trace_id: uuid.UUID | None = None
+    outline_duration_ms: int = 0
+    slide_durations_ms: list[int] = Field(default_factory=list)
+    export_duration_ms: int = 0
 
 
 class EvalRunPublic(BaseModel):

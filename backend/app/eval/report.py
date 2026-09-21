@@ -6,7 +6,8 @@ run 级口径（PR 描述与报告尾部注明）：
 - 页数达成率 = Σ(ready 页数达标) / 有 deck 的题（按题二值计）
 - 需求覆盖分 = judge 平均 coverage_rate（0-1）与平均 content_score（0-10）
 - 幻觉率 = Σ编造数字 / Σ提取数字（仅文档题）
-- 平均耗时 / 平均 Token：题均值；Token 口径为 0（见 runner 模块头注）
+- 平均耗时：题均值；平均 Token：成功题的每题 token 总和取均值
+  （token 来自 spans 聚合，见 trace_join.py；查不到 trace 的题按 0 参与均值）
 - 失败率 = 失败题 / 总题
 - 重试率 = 出现过 failed 的页数 / 总页数（ARQ 层 job 重试不可见于 HTTP 的
   近似口径，另记评测器主动触发的逐页重试次数）
@@ -55,8 +56,17 @@ class CaseRow(BaseModel):
     retried_slides: int = 0
     total_slides: int = 0
     elapsed_seconds: float = 0.0
+    # token 与分段耗时：trace_join 按 artifacts 的 trace_id 从 spans 聚合
+    # 并进明细（persistence 写库时补齐）；这里保留默认 0 供纯内存报告。
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # "trace"：spans 聚合的真实值；"unavailable"：查不到（按 0 展示）
+    tokens_source: str = "unavailable"
+    outline_trace_id: str | None = None
+    deck_trace_id: str | None = None
+    outline_duration_ms: int = 0
+    slide_durations_ms: list[int] = Field(default_factory=list)
+    export_duration_ms: int = 0
 
 
 class RunSummary(BaseModel):
@@ -82,6 +92,13 @@ class RunSummary(BaseModel):
     avg_elapsed_seconds: float = 0.0
     avg_prompt_tokens: float = 0.0
     avg_completion_tokens: float = 0.0
+    # 分段耗时均耗（秒；成功题均值，与 avg_prompt_tokens 同口径）：
+    # 大纲段（outline.* span）、每页 task span 的平均单页耗时、导出段
+    avg_outline_seconds: float = 0.0
+    avg_slide_seconds: float = 0.0
+    avg_export_seconds: float = 0.0
+    # tokens 来源为 trace 的成功题数（小于 ok_cases 即有题查不到 trace）
+    token_joined_cases: int = 0
     total_failed_slides: int = 0
     total_slides: int = 0
     retry_slide_rate: float | None = None
@@ -121,8 +138,8 @@ def build_row(
         retried_slides=artifacts.retried_slides,
         total_slides=artifacts.total_slides,
         elapsed_seconds=artifacts.elapsed_seconds,
-        prompt_tokens=artifacts.prompt_tokens,
-        completion_tokens=artifacts.completion_tokens,
+        outline_trace_id=artifacts.outline_trace_id,
+        deck_trace_id=artifacts.deck_trace_id,
     )
     if score.judge is not None:
         row.judge_coverage = score.judge.coverage_rate
@@ -176,8 +193,31 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
             summary.hallucination_rate = 0.0
 
     summary.avg_elapsed_seconds = sum(row.elapsed_seconds for row in rows) / len(rows)
-    summary.avg_prompt_tokens = sum(row.prompt_tokens for row in rows) / len(rows)
-    summary.avg_completion_tokens = sum(row.completion_tokens for row in rows) / len(rows)
+    # Token 口径（obs#4）：成功题的每题 token 总和（outline+deck 两段 trace
+    # 的 llm span 聚合，见 trace_join.py）取均值，与 avg_elapsed 的分母
+    # 语义对齐（成功题）；查不到 trace 的题按 0 参与。
+    ok_rows = [row for row in rows if row.ok]
+    if ok_rows:
+        summary.avg_prompt_tokens = sum(row.prompt_tokens for row in ok_rows) / len(ok_rows)
+        summary.avg_completion_tokens = (
+            sum(row.completion_tokens for row in ok_rows) / len(ok_rows)
+        )
+        summary.avg_outline_seconds = (
+            sum(row.outline_duration_ms for row in ok_rows) / len(ok_rows) / 1000
+        )
+        slide_seconds = [ms / 1000 for row in ok_rows for ms in row.slide_durations_ms]
+        summary.avg_slide_seconds = (
+            sum(slide_seconds) / len(slide_seconds) if slide_seconds else 0.0
+        )
+        summary.avg_export_seconds = (
+            sum(row.export_duration_ms for row in ok_rows) / len(ok_rows) / 1000
+        )
+        summary.token_joined_cases = sum(
+            1 for row in ok_rows if row.tokens_source == "trace"
+        )
+    else:
+        summary.avg_prompt_tokens = 0.0
+        summary.avg_completion_tokens = 0.0
 
     summary.total_failed_slides = sum(row.failed_slide_seen for row in rows)
     summary.total_slides = sum(row.total_slides for row in rows)
@@ -232,7 +272,8 @@ def format_report(report: EvalReport) -> str:
     lines.append(f"平均耗时：{_fmt_float(s.avg_elapsed_seconds)}s")
     lines.append(
         f"平均 Token：prompt {_fmt_float(s.avg_prompt_tokens, 0)} / "
-        f"completion {_fmt_float(s.avg_completion_tokens, 0)}（口径：worker 进程埋点不可达，恒 0）"
+        f"completion {_fmt_float(s.avg_completion_tokens, 0)}"
+        f"（口径：按 trace join spans 聚合，成功题均值；查不到 trace 的题按 0）"
     )
     lines.append(
         f"重试率：{s.total_failed_slides}/{s.total_slides}（{_fmt_pct(s.retry_slide_rate)}）"
@@ -286,6 +327,9 @@ def format_report(report: EvalReport) -> str:
         "- 重试率：ARQ 层 job 重试不可见于 HTTP，按「生成阶段出现过 failed 状态的页数 / 总页数」"
         "近似；另有评测器主动触发的逐页重试次数。"
     )
-    lines.append("- 平均 Token：埋点在 worker 进程内，HTTP 驱动取不到，v1 恒 0。")
+    lines.append(
+        "- 平均 Token：按题的 trace_id join spans 表聚合（llm span 求和）；"
+        "成功题均值，查不到 trace 的题按 0 并标注来源。"
+    )
     lines.append("- 无硬门禁：任何指标不达标不影响退出码（环境性错误除外）。")
     return "\n".join(lines) + "\n"

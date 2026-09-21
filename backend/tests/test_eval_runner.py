@@ -25,6 +25,9 @@ from app.eval.runner import (
 )
 
 API = "http://eval.test/api/v1"
+# 202 响应带回的观测锚点（obs#1/obs#4）：runner 需原样抓进 artifacts
+OUTLINE_TRACE_ID = "0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1001"
+DECK_TRACE_ID = "0e2d0f6e-0f9a-4b1e-9a64-7e5f1f0a1002"
 
 
 def _topic_case(case_id: str = "technology/rag") -> EvalCase:
@@ -107,7 +110,10 @@ class FakeService:
             assert body["kind"] == "topic" and body["content"], "主题题必须带题面注册 topic source"
             return _response({"id": "src-topic", "char_count": len(body["content"])}, status=201)
         if path.endswith("/outline/generate"):
-            return _response({"job_id": "j1", "status": "generating"}, status=202)
+            return _response(
+                {"job_id": "j1", "status": "generating", "trace_id": OUTLINE_TRACE_ID},
+                status=202,
+            )
         if path.endswith("/outline") and method == "GET":
             self.outline_polls += 1
             if self.fail_outline:
@@ -126,6 +132,7 @@ class FakeService:
                     "status": "generating",
                     "total": self.pages,
                     "pending": self.pages,
+                    "trace_id": DECK_TRACE_ID,
                 },
                 status=202,
             )
@@ -215,6 +222,9 @@ class TestHappyPath:
         assert artifacts.export_succeeded is True
         assert artifacts.total_slides == 5
         assert artifacts.deck_response is not None
+        # trace 锚点（obs#4）：两段 202 响应的 trace_id 原样进 artifacts
+        assert artifacts.outline_trace_id == OUTLINE_TRACE_ID
+        assert artifacts.deck_trace_id == DECK_TRACE_ID
 
         # 关键编排顺序：注册 → 建项目 → topic source → 大纲 → 轮询 → 确认 → 页面 → 轮询 → 导出
         expected_order = [
@@ -253,6 +263,29 @@ class TestFailureCollection:
         assert artifacts.ok is False
         assert artifacts.stage == "outline_wait"
         assert "大纲生成失败" in (artifacts.error or "")
+        # outline 202 已返回 → trace_id 已抓到；deck 未发起 → None
+        assert artifacts.outline_trace_id == OUTLINE_TRACE_ID
+        assert artifacts.deck_trace_id is None
+
+    async def test_missing_trace_id_tolerated(self) -> None:
+        # 老版本 API / 埋点失败时 202 不带 trace_id：不得炸编排
+        service = FakeService(pages=5)
+
+        def strip_trace(request: httpx.Request) -> httpx.Response:
+            response = service.handler(request)
+            if request.url.path.endswith(("/outline/generate", "/deck/generate")):
+                response = _response(
+                    {k: v for k, v in response.json().items() if k != "trace_id"},
+                    status=202,
+                )
+            return response
+
+        client = httpx.AsyncClient(base_url=API, transport=httpx.MockTransport(strip_trace))
+        results = await EvalRunner(client, timeouts=_fast_timeouts()).run([_topic_case()])
+
+        assert results[0].ok is True
+        assert results[0].outline_trace_id is None
+        assert results[0].deck_trace_id is None
 
     async def test_outline_timeout_collected(self) -> None:
         service = FakeService(pages=5, outline_polls_before_done=10_000)

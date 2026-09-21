@@ -4,6 +4,9 @@ report.py 的 EvalReport（run 级聚合 + 逐题行）在这里转换为 EvalRu
 模型并写入数据库：纯转换函数（report_to_run / row_to_detail /
 build_category_scores / compute_cases_version）不触库，save_run 接受
 外部 session（脚本直连与测试共用同一条真实写入路径）。
+
+obs#4：写入前按各题 trace_id join spans 表，把真实 token 与分段耗时
+并进明细行，再重新聚合 run 级指标（token 平均口径见 trace_join.py）。
 """
 
 from __future__ import annotations
@@ -15,7 +18,8 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.eval.cases import CATEGORIES, EvalCase
-from app.eval.report import CaseRow, EvalReport
+from app.eval.report import CaseRow, EvalReport, aggregate
+from app.eval.trace_join import join_trace_metrics
 from app.models.eval_run import EvalRun
 
 # 逐题明细 JSONB 的键白名单：报告行里 rest 字段属于控制台呈现，
@@ -37,6 +41,14 @@ _DETAIL_KEYS = (
     "retried_slides",
     "total_slides",
     "elapsed_seconds",
+    "prompt_tokens",
+    "completion_tokens",
+    "tokens_source",
+    "outline_trace_id",
+    "deck_trace_id",
+    "outline_duration_ms",
+    "slide_durations_ms",
+    "export_duration_ms",
 )
 
 
@@ -97,6 +109,28 @@ def build_category_scores(details: list[dict[str, Any]]) -> dict[str, dict[str, 
         if judged:
             bucket["avg_judge_score"] = sum(judged) / len(judged)
     return scores
+
+
+async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
+    """就地补齐 report 里各题的 token / 分段耗时（obs#4）。
+
+    每题按 outline/deck trace_id 查 spans 聚合（查不到按 0 并标注
+    tokens_source）；补完后重新跑 aggregate，让 run 级 token 均值与
+    分段均耗基于真实数据。join 内部吞掉查询异常，本函数不抛。
+    """
+    for row in report.rows:
+        joined = await join_trace_metrics(
+            session,
+            outline_trace_id=row.outline_trace_id,
+            deck_trace_id=row.deck_trace_id,
+        )
+        row.prompt_tokens = joined.prompt_tokens
+        row.completion_tokens = joined.completion_tokens
+        row.tokens_source = joined.tokens_source
+        row.outline_duration_ms = joined.outline_duration_ms
+        row.slide_durations_ms = joined.slide_durations_ms
+        row.export_duration_ms = joined.export_duration_ms
+    report.summary = aggregate(report.rows)
 
 
 def report_to_run(
@@ -162,6 +196,7 @@ async def save_run(session: AsyncSession, run: EvalRun) -> EvalRun:
 __all__ = [
     "build_category_scores",
     "compute_cases_version",
+    "join_report_traces",
     "report_to_run",
     "row_to_detail",
     "save_run",
