@@ -96,6 +96,20 @@ def _display(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def pick_smoke_case(cases: list[EvalCase]) -> EvalCase | None:
+    """全量评测前的冒烟题：主题题里挑页数最少的（不传材料、链路最短）。
+
+    run_eval 用它先完整跑通一次真实链路，harness 自身坏了（编排漏步骤、
+    桩与真实 API 漂移）在分钟级暴露，而不是烧完一整轮 35-60 分钟后
+    才从逐题 422 里发现。无主题题时返回 None（题集不满足冒烟条件，
+    由调用方决定是否照常起跑）。
+    """
+    topic_cases = [case for case in cases if case.category != "documents"]
+    if not topic_cases:
+        return None
+    return min(topic_cases, key=lambda case: (case.expected_pages, case.id))
+
+
 def _load_one(path: Path, display: str) -> EvalCase:
     directory = path.parent.name
     if directory not in CATEGORIES:

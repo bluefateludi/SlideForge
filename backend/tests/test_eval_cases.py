@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.eval.cases import CASES_DIR, CATEGORIES, EvalCase, load_cases
+from app.eval.cases import CASES_DIR, CATEGORIES, EvalCase, load_cases, pick_smoke_case
 
 
 def _write_case(
@@ -189,3 +189,53 @@ def test_non_positive_expected_pages_is_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc_info:
         load_cases(tmp_path)
     assert "expected_pages" in str(exc_info.value)
+
+
+# ---------- 冒烟选题（run_eval 全量前的 1 题预检） ----------
+
+
+def test_pick_smoke_case_prefers_topic_case_with_fewest_pages() -> None:
+    cases = load_cases()
+    smoke = pick_smoke_case(cases)
+
+    # 主题题不传材料、链路最短；同为此类里挑页数最少的，冒烟耗时可控
+    assert smoke is not None
+    assert smoke.category != "documents"
+    assert smoke.source is None
+    min_topic_pages = min(c.expected_pages for c in cases if c.category != "documents")
+    assert smoke.expected_pages == min_topic_pages
+    # 返回值必须来自题集本身，保证后续全量按 id 去重时不会漏跑
+    assert smoke in cases
+
+
+def test_pick_smoke_case_skips_documents_even_when_shortest() -> None:
+    # 构造：文档题 3 页最短，主题题 5 页 → 仍选主题题
+    topic = EvalCase(
+        id="technology/rag",
+        input="生成一份测试的 5 页 PPT",
+        expected_pages=5,
+        requirements=["包含测试要求"],
+        category="technology",
+    )
+    doc = EvalCase(
+        id="documents/q3",
+        input="根据材料生成一份 3 页 PPT",
+        expected_pages=3,
+        requirements=["包含测试要求"],
+        category="documents",
+        source="q3.md",
+    )
+    smoke = pick_smoke_case([doc, topic])
+    assert smoke is topic
+
+
+def test_pick_smoke_case_none_when_no_topic_case() -> None:
+    doc = EvalCase(
+        id="documents/q3",
+        input="根据材料生成一份 3 页 PPT",
+        expected_pages=3,
+        requirements=["包含测试要求"],
+        category="documents",
+        source="q3.md",
+    )
+    assert pick_smoke_case([doc]) is None

@@ -32,7 +32,7 @@ if str(BACKEND_ROOT) not in sys.path:
 import httpx  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
-from app.eval.cases import load_cases  # noqa: E402
+from app.eval.cases import load_cases, pick_smoke_case  # noqa: E402
 from app.eval.evaluator import DeckJudge  # noqa: E402
 from app.eval.persistence import (  # noqa: E402
     compute_cases_version,
@@ -80,6 +80,39 @@ def _build_judge() -> DeckJudge | None:
         return None
 
 
+async def _run_with_smoke(runner, cases):
+    """冒烟预检 + 全量执行：先跑 1 道最短主题题，链路不通立即中止。
+
+    harness 自身的问题（编排漏步骤、桩与真实 API 漂移）在分钟级暴露，
+    而不是烧完一整轮后从逐题 422 里发现。冒烟通过则跳过该题跑余题，
+    结果按传入顺序归位，对调用方与一次跑全量无差别。
+    EVAL_SKIP_SMOKE 非空时直接全量（题集无主题题时同样直落）。
+
+    返回 artifacts 列表；冒烟未通过返回 None（调用方中止、不产出报告）。
+    """
+    smoke = pick_smoke_case(cases) if not os.environ.get("EVAL_SKIP_SMOKE", "").strip() else None
+    if smoke is None:
+        return await runner.run(cases)
+
+    print(f"[eval] 冒烟预检：{smoke.id}（{smoke.expected_pages} 页）", file=sys.stderr)
+    smoke_artifacts = await runner.run([smoke])
+    smoke_result = smoke_artifacts[0]
+    if not smoke_result.ok:
+        print(
+            f"[eval] 冒烟未通过（阶段 {smoke_result.stage}）：{smoke_result.error}\n"
+            f"[eval] 疑似 harness/环境问题，已中止，未跑全量。"
+            f"确认环境无误后可 EVAL_SKIP_SMOKE=1 跳过预检。",
+            file=sys.stderr,
+        )
+        return None
+
+    print("[eval] 冒烟通过，起跑全量", file=sys.stderr)
+    rest = [case for case in cases if case.id != smoke.id]
+    rest_artifacts = await runner.run(rest)
+    by_id = {smoke.id: smoke_result, **{item.case_id: item for item in rest_artifacts}}
+    return [by_id[case.id] for case in cases]
+
+
 async def _main() -> int:
     api_base = os.environ.get("EVAL_API_BASE", DEFAULT_API_BASE).rstrip("/")
     base = api_base if api_base.endswith("/api/v1") else _with_v1(api_base)
@@ -92,9 +125,11 @@ async def _main() -> int:
     async with httpx.AsyncClient(base_url=base, timeout=300.0, trust_env=False) as client:
         runner = EvalRunner(client, timeouts=_timeouts_from_env(), judge=judge)
         try:
-            artifacts = await runner.run(cases)
+            artifacts = await _run_with_smoke(runner, cases)
         except EvalEnvironmentError as error:
             print(f"[eval] 环境错误，评测中止：{error}", file=sys.stderr)
+            return 2
+        if artifacts is None:
             return 2
 
     results = []
