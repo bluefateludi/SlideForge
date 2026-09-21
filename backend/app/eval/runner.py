@@ -137,6 +137,10 @@ class EvalRunner:
 
         if case.category == "documents":
             await self._upload_source(case, project_id, artifacts, headers)
+        else:
+            # 主题题没有材料文件：大纲生成要求项目至少有一个非空 source，
+            # 按产品同款路径把题面指令注册为 topic 型 source。
+            await self._add_topic_source(case, project_id, artifacts, headers)
 
         await self._generate_outline(project_id, artifacts, headers)
         revision = await self._wait_outline(project_id, artifacts, headers)
@@ -177,6 +181,17 @@ class EvalRunner:
             "POST",
             f"/projects/{project_id}/sources/upload",
             files={"file": (filename, data, "text/markdown")},
+            headers=headers,
+        )
+
+    async def _add_topic_source(
+        self, case: EvalCase, project_id: str, artifacts: CaseArtifacts, headers: dict
+    ) -> None:
+        artifacts.stage = "add_topic_source"
+        await self._request(
+            "POST",
+            f"/projects/{project_id}/sources",
+            json={"kind": "topic", "content": case.input},
             headers=headers,
         )
 

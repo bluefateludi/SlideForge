@@ -107,10 +107,16 @@ def _run_row(**overrides) -> dict:
 @pytest.fixture
 async def seeded_runs():
     """插入两条 run 记录并在用例结束后清理（复用生产 session factory）。"""
+    from datetime import UTC, datetime, timedelta
+
     from app.core.db import async_session_factory
 
     older = EvalRun(**_run_row(cases_version="v1", note="较早"))
     newer = EvalRun(**_run_row(cases_version="v2", note="较新"))
+    # created_at 默认 now()：同事务插入会同时间戳，而 uuid4 的 id 无时间序，
+    # 与库内既有 run 同秒时排序断言会翻车。显式错开时间戳，让断言只考验排序。
+    older.created_at = datetime.now(UTC) - timedelta(minutes=10)
+    newer.created_at = datetime.now(UTC) - timedelta(minutes=5)
     async with async_session_factory() as session:
         session.add_all([older, newer])
         await session.commit()
@@ -132,7 +138,9 @@ async def test_list_runs_newest_first(client: AsyncClient, seeded_runs) -> None:
     body = response.json()
     ids = [item["id"] for item in body]
     assert {str(run.id) for run in seeded_runs} <= set(ids)
-    assert ids == sorted(ids, reverse=True)  # id 时间有序 → 新 run 在前
+    # created_at 降序 → 时间较新的 seeded run 必须排在较旧的前面
+    # （不能用 uuid 字符串排序当期望：uuid4 无时间序，库里有历史 run 时必翻车）
+    assert ids.index(str(seeded_runs[1].id)) < ids.index(str(seeded_runs[0].id))
     row = next(item for item in body if item["id"] == str(seeded_runs[1].id))
     # 列表行字段：列表页不解析明细 JSONB
     assert row["cases_version"] == "v2"
