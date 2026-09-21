@@ -798,6 +798,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/eval/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Runs
+         * @description 按时间倒序返回历史 run 列表（只含聚合指标列）。
+         */
+        get: operations["list_runs_api_v1_eval_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/eval/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Run
+         * @description 单次 run 详情：聚合指标 + 逐题明细 + 分类均分。
+         */
+        get: operations["get_run_api_v1_eval_runs__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1392,6 +1432,240 @@ export interface components {
              * @default 1
              */
             end: number;
+        };
+        /**
+         * EvalCaseRow
+         * @description 逐题明细条目：rows JSONB 的元素结构（入库白名单见 app.eval.persistence）。
+         */
+        EvalCaseRow: {
+            /** Case Id */
+            case_id: string;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "technology" | "business" | "education" | "documents";
+            /** Ok */
+            ok: boolean;
+            /** Stage */
+            stage: string;
+            /** Error */
+            error?: string | null;
+            /**
+             * Ready Pages
+             * @default 0
+             */
+            ready_pages: number;
+            /**
+             * Expected Pages
+             * @default 0
+             */
+            expected_pages: number;
+            /**
+             * Pages Met
+             * @default false
+             */
+            pages_met: boolean;
+            /** Schema Valid */
+            schema_valid?: boolean | null;
+            /** Judge Coverage */
+            judge_coverage?: number | null;
+            /** Judge Score */
+            judge_score?: number | null;
+            /** Judge Error */
+            judge_error?: string | null;
+            /** Hallucination Rate */
+            hallucination_rate?: number | null;
+            /**
+             * Failed Slide Seen
+             * @default 0
+             */
+            failed_slide_seen: number;
+            /**
+             * Retried Slides
+             * @default 0
+             */
+            retried_slides: number;
+            /**
+             * Total Slides
+             * @default 0
+             */
+            total_slides: number;
+            /**
+             * Elapsed Seconds
+             * @default 0
+             */
+            elapsed_seconds: number;
+        };
+        /**
+         * EvalCategoryScore
+         * @description 单类别小结：从逐题明细推导后随 run 一起存储。
+         */
+        EvalCategoryScore: {
+            /**
+             * Total Cases
+             * @default 0
+             */
+            total_cases: number;
+            /**
+             * Ok Cases
+             * @default 0
+             */
+            ok_cases: number;
+            /**
+             * Success Rate
+             * @default 0
+             */
+            success_rate: number;
+            /** Avg Judge Score */
+            avg_judge_score?: number | null;
+        };
+        /**
+         * EvalRunDetail
+         * @description 详情：在列表行基础上补逐题明细与分类均分。
+         */
+        EvalRunDetail: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Cases Version */
+            cases_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "failed";
+            /** Note */
+            note: string;
+            /** Total Cases */
+            total_cases: number;
+            /** Ok Cases */
+            ok_cases: number;
+            /** Success Rate */
+            success_rate: number;
+            /** Failure Rate */
+            failure_rate: number;
+            /** Schema Valid Rate */
+            schema_valid_rate: number;
+            /** Schema Valid Cases */
+            schema_valid_cases: number;
+            /** Schema Scored Cases */
+            schema_scored_cases: number;
+            /** Pages Met Rate */
+            pages_met_rate: number;
+            /** Pages Met Cases */
+            pages_met_cases: number;
+            /** Pages Scored Cases */
+            pages_scored_cases: number;
+            /** Avg Judge Coverage */
+            avg_judge_coverage: number | null;
+            /** Avg Judge Score */
+            avg_judge_score: number | null;
+            /** Hallucination Rate */
+            hallucination_rate: number | null;
+            /** Doc Fabricated Numbers */
+            doc_fabricated_numbers: number;
+            /** Doc Total Numbers */
+            doc_total_numbers: number;
+            /** Avg Elapsed Seconds */
+            avg_elapsed_seconds: number;
+            /** Avg Prompt Tokens */
+            avg_prompt_tokens: number;
+            /** Avg Completion Tokens */
+            avg_completion_tokens: number;
+            /** Retry Slide Rate */
+            retry_slide_rate: number | null;
+            /** Total Failed Slides */
+            total_failed_slides: number;
+            /** Total Slides */
+            total_slides: number;
+            /** Total Retried Slides */
+            total_retried_slides: number;
+            /** Rows */
+            rows: components["schemas"]["EvalCaseRow"][];
+            /**
+             * Category Scores
+             * @description 四类（technology/business/education/documents）各自的小结
+             */
+            category_scores: {
+                [key: string]: components["schemas"]["EvalCategoryScore"];
+            };
+        };
+        /**
+         * EvalRunPublic
+         * @description 列表行：只含聚合指标列，不解析明细 JSONB。
+         */
+        EvalRunPublic: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Cases Version */
+            cases_version: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "completed" | "failed";
+            /** Note */
+            note: string;
+            /** Total Cases */
+            total_cases: number;
+            /** Ok Cases */
+            ok_cases: number;
+            /** Success Rate */
+            success_rate: number;
+            /** Failure Rate */
+            failure_rate: number;
+            /** Schema Valid Rate */
+            schema_valid_rate: number;
+            /** Schema Valid Cases */
+            schema_valid_cases: number;
+            /** Schema Scored Cases */
+            schema_scored_cases: number;
+            /** Pages Met Rate */
+            pages_met_rate: number;
+            /** Pages Met Cases */
+            pages_met_cases: number;
+            /** Pages Scored Cases */
+            pages_scored_cases: number;
+            /** Avg Judge Coverage */
+            avg_judge_coverage: number | null;
+            /** Avg Judge Score */
+            avg_judge_score: number | null;
+            /** Hallucination Rate */
+            hallucination_rate: number | null;
+            /** Doc Fabricated Numbers */
+            doc_fabricated_numbers: number;
+            /** Doc Total Numbers */
+            doc_total_numbers: number;
+            /** Avg Elapsed Seconds */
+            avg_elapsed_seconds: number;
+            /** Avg Prompt Tokens */
+            avg_prompt_tokens: number;
+            /** Avg Completion Tokens */
+            avg_completion_tokens: number;
+            /** Retry Slide Rate */
+            retry_slide_rate: number | null;
+            /** Total Failed Slides */
+            total_failed_slides: number;
+            /** Total Slides */
+            total_slides: number;
+            /** Total Retried Slides */
+            total_retried_slides: number;
         };
         /**
          * ExportCheckReport
@@ -4224,6 +4498,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_runs_api_v1_eval_runs_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRunPublic"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_run_api_v1_eval_runs__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRunDetail"];
                 };
             };
             /** @description Validation Error */
