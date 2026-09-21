@@ -4,21 +4,34 @@ import { Link, useLocation, useNavigate } from 'react-router'
 import { BrandMark } from '@/components/BrandMark'
 import { Button } from '@/components/ui/Button'
 import { useAuthStore } from '@/features/auth/store'
+import { cn } from '@/lib/utils'
 
 /** 工作区外壳：仅用于列表与创作页；编辑工作台自带全屏 chrome，不套这层。 */
 export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const onCreate = location.pathname === '/create'
+  const onEval = location.pathname.startsWith('/eval')
 
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-line bg-surface/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-6">
-          <Link to="/projects" className="flex items-center gap-2.5">
-            <BrandMark className="size-7" />
-            <span className="text-[15px] font-semibold tracking-tight">SlideForge</span>
-          </Link>
+          <div className="flex items-center gap-5">
+            <Link to="/projects" className="flex items-center gap-2.5">
+              <BrandMark className="size-7" />
+              <span className="text-[15px] font-semibold tracking-tight">SlideForge</span>
+            </Link>
+
+            <nav className="flex items-center gap-1" aria-label="主导航">
+              <NavLink to="/projects" active={!onEval}>
+                项目
+              </NavLink>
+              <NavLink to="/eval" active={onEval}>
+                评测
+              </NavLink>
+            </nav>
+          </div>
 
           <div className="flex items-center gap-2">
             {!onCreate && (
@@ -34,6 +47,30 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <main className="flex-1">{children}</main>
     </div>
+  )
+}
+
+/** 顶栏导航链接：克制样式，与外壳整体密度一致 */
+function NavLink({
+  to,
+  active,
+  children,
+}: {
+  to: string
+  active: boolean
+  children: ReactNode
+}) {
+  return (
+    <Link
+      to={to}
+      aria-current={active ? 'page' : undefined}
+      className={cn(
+        'rounded-lg px-2.5 py-1.5 text-sm transition-colors',
+        active ? 'bg-surface-soft font-semibold text-ink' : 'text-ink-muted hover:bg-surface-soft hover:text-ink',
+      )}
+    >
+      {children}
+    </Link>
   )
 }
 

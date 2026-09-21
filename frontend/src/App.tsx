@@ -4,6 +4,8 @@ import { AppShell } from '@/components/AppShell'
 import { useAuthStore } from '@/features/auth/store'
 import AuthPage from '@/pages/AuthPage'
 import CreatePage from '@/pages/CreatePage'
+import EvalRunDetailPage from '@/pages/EvalRunDetailPage'
+import EvalRunsPage from '@/pages/EvalRunsPage'
 import ProjectDetailPage from '@/pages/ProjectDetailPage'
 import ProjectsPage from '@/pages/ProjectsPage'
 import { RequireAuth } from '@/routes/RequireAuth'
@@ -31,6 +33,9 @@ export default function App() {
         >
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/create" element={<CreatePage />} />
+          {/* 评测页只读，与列表/创作同层进工作区外壳 */}
+          <Route path="/eval" element={<EvalRunsPage />} />
+          <Route path="/eval/:runId" element={<EvalRunDetailPage />} />
         </Route>
 
         {/* 大纲与编辑工作台自带全屏 chrome，不进工作区外壳 */}
