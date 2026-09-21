@@ -164,14 +164,6 @@ class FakeLLMOutlineGenerator:
         return draft
 
 
-class _PublicError(Exception):
-    pass
-
-
-class _FailingChat:
-    """complete 永远抛 InvalidSlideOutputError 的假 client，用于失败注入。"""
-
-
 class FakeLLMSlideGenerator:
     """走 StructuredChatClient 的单页生成器；messages 依次消费。"""
 
