@@ -14,6 +14,8 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.config import Settings, get_settings
 from app.llm.errors import InvalidModelOutputError, LLMNotConfiguredError
+from app.observability import codes
+from app.observability.recorder import finish_span, start_span
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -24,6 +26,9 @@ _PROMPT = ChatPromptTemplate.from_messages(
         ("human", "{user}"),
     ]
 )
+
+# openai SDK 的自动重试上限；SDK 不暴露实际重试次数，span 只记此配置值
+LLM_MAX_RETRIES = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,12 +93,33 @@ def create_chat_model(settings: Settings | None = None) -> ChatOpenAI:
         "api_key": cfg.llm_api_key or "not-configured",
         "base_url": cfg.llm_base_url,
         "timeout": cfg.llm_timeout_seconds,
-        "max_retries": 2,
+        "max_retries": LLM_MAX_RETRIES,
     }
     # 思考模式默认关闭；关闭时不要传 thinking，避免无谓地拉长延迟
     if cfg.llm_thinking_enabled:
         kwargs["extra_body"] = {"thinking": {"type": "enabled"}}
     return ChatOpenAI(**kwargs)
+
+
+def _model_name(model: BaseChatModel) -> str | None:
+    """尽力取模型标识（ChatOpenAI 有 model_name / model 属性），失败返回 None。"""
+    for attr in ("model_name", "model"):
+        value = getattr(model, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _is_timeout(error: BaseException) -> bool:
+    """openai.APITimeoutError 与通用超时类，判不出就按非超时。"""
+    if error.__class__.__name__ in {"APITimeoutError", "TimeoutError"}:
+        return True
+    try:
+        from openai import APITimeoutError
+
+        return isinstance(error, APITimeoutError)
+    except Exception:
+        return False
 
 
 class StructuredChatClient:
@@ -118,17 +144,39 @@ class StructuredChatClient:
         chain = _PROMPT | self._model.with_structured_output(
             schema, method="json_mode", include_raw=True
         )
+        # 咽喉点 span（obs#2）：无 trace 上下文时 start_span 返回 None，全程零开销
+        llm_span = await start_span(
+            "llm",
+            "llm",
+            attributes={
+                "purpose": purpose,
+                # 口径说明：openai SDK 不暴露实际重试次数，这里只记配置上限
+                "max_retries": LLM_MAX_RETRIES,
+            },
+        )
         started = time.monotonic()
         try:
             result = await chain.ainvoke({"system": system, "user": user})
         except Exception as error:
+            await finish_span(
+                llm_span,
+                "failed",
+                error_code=codes.LLM_TIMEOUT if _is_timeout(error) else codes.LLM_ERROR,
+                error_message=str(error) or error.__class__.__name__,
+            )
             raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
 
         raw_message = result.get("raw") if isinstance(result, dict) else None
         parsed = result.get("parsed") if isinstance(result, dict) else result
         parsing_error = result.get("parsing_error") if isinstance(result, dict) else None
         if parsing_error is not None or parsed is None:
-            # 解析失败不记指标，避免污染聚合口径
+            # 解析失败不记指标，避免污染聚合口径；span 侧记 llm_schema_error
+            await finish_span(
+                llm_span,
+                "failed",
+                error_code=codes.LLM_SCHEMA_ERROR,
+                error_message=str(parsing_error) or "结构化输出解析失败",
+            )
             raise InvalidModelOutputError("模型返回内容不符合约定结构")
 
         prompt_tokens, completion_tokens = _extract_usage(raw_message)
@@ -150,16 +198,28 @@ class StructuredChatClient:
             completion_tokens,
         )
 
-        if isinstance(parsed, schema):
-            return parsed
-        if isinstance(parsed, BaseModel):
-            try:
-                return schema.model_validate(parsed.model_dump())
-            except ValidationError as error:
-                raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
-        if isinstance(parsed, dict):
-            try:
-                return schema.model_validate(parsed)
-            except ValidationError as error:
-                raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
-        raise InvalidModelOutputError("模型返回内容不符合约定结构")
+        try:
+            if isinstance(parsed, schema):
+                final = parsed
+            elif isinstance(parsed, BaseModel):
+                final = schema.model_validate(parsed.model_dump())
+            elif isinstance(parsed, dict):
+                final = schema.model_validate(parsed)
+            else:
+                final = None
+        except ValidationError as error:
+            await finish_span(llm_span, "failed", error_code=codes.LLM_SCHEMA_ERROR)
+            raise InvalidModelOutputError("模型返回内容不符合约定结构") from error
+        if final is None:
+            await finish_span(llm_span, "failed", error_code=codes.LLM_SCHEMA_ERROR)
+            raise InvalidModelOutputError("模型返回内容不符合约定结构")
+
+        await finish_span(
+            llm_span,
+            "succeeded",
+            model=_model_name(self._model),
+            purpose=purpose,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+        )
+        return final

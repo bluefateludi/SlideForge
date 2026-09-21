@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.domain.outline import OutlineDraft
 from app.llm.base import OutlineGenerationInput, OutlineGenerator, OutlineSourceSection
+from app.observability.recorder import traced_node
 
 # 总预算压住 prompt 体积，单节上限避免某一节吞掉全部配额；
 # 按整节追加，超长只截断该节正文，保证 ref 与文本不会错位。
@@ -85,8 +86,8 @@ def build_outline_workflow(generator: OutlineGenerator):
         return {"draft": draft}
 
     graph = StateGraph(OutlineWorkflowState)
-    graph.add_node("prepare", prepare)
-    graph.add_node("generate", generate)
+    graph.add_node("prepare", traced_node("outline.prepare")(prepare))
+    graph.add_node("generate", traced_node("outline.generate")(generate))
     graph.add_edge(START, "prepare")
     graph.add_edge("prepare", "generate")
     graph.add_edge("generate", END)
