@@ -13,6 +13,7 @@ from app.api.v1.projects import OwnedProject
 from app.core.db import get_session
 from app.domain.layout import load_layouts
 from app.models.project import Project, ProjectOutline
+from app.observability.recorder import start_trace
 from app.schemas.outline import (
     OutlineEvent,
     OutlineGenerateAccepted,
@@ -117,6 +118,18 @@ async def generate_outline(
     if job is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务已存在")
 
+    # enqueue 成功后才建 trace：队列挂时不会留下孤儿 running trace
+    trace_id = await start_trace(kind="outline", project_id=project.id, job_id=job_id)
+    if trace_id is not None:
+        # trace_id 作为新增位置参数传给 worker，用于终态收口
+        await queue.enqueue_job(
+            "generate_outline",
+            str(project.id),
+            job_id,
+            str(trace_id),
+            _job_id=job_id,
+        )
+
     await publish_outline_event(
         project.id,
         OutlineEvent(
@@ -127,7 +140,7 @@ async def generate_outline(
             revision=outline.revision,
         ),
     )
-    return OutlineGenerateAccepted(job_id=job_id)
+    return OutlineGenerateAccepted(job_id=job_id, trace_id=trace_id)
 
 
 @router.patch("", response_model=OutlinePublic)

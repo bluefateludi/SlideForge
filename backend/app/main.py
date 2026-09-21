@@ -7,6 +7,7 @@ from app.api.v1 import api_router
 from app.core.config import get_settings
 from app.core.queue import close_arq_pool
 from app.core.redis import close_redis, get_redis
+from app.observability.logging import setup_logging
 
 
 @asynccontextmanager
@@ -19,6 +20,7 @@ async def lifespan(_app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    setup_logging()
     settings = get_settings()
     app = FastAPI(title="SlideForge API", lifespan=lifespan)
     app.add_middleware(

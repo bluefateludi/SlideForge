@@ -35,6 +35,10 @@ class Project(Base):
     # 整份文字量：concise / medium / detailed
     content_density: Mapped[str] = mapped_column(String(16), nullable=False, default="medium")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    # 最近一次页面生成 trace 的归属锚点（导出时反查 deck 上下文用）。
+    # 刻意不加外键：traces.project_id 已有 FK，再加会形成双向约束环；
+    # 该列由业务在发起 deck 生成时维护，traces 清理后允许悬空。
+    last_deck_trace_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

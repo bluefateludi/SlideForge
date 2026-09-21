@@ -11,6 +11,7 @@ from app.llm.deepseek import DeepSeekOutlineGenerator
 from app.llm.relayout import DeepSeekRelayoutGenerator
 from app.llm.slide import DeepSeekSlideGenerator
 from app.llm.slide_edit import DeepSeekSlideEditGenerator
+from app.observability.logging import setup_logging
 
 
 def create_outline_generator(model: BaseChatModel | None = None) -> OutlineGenerator:
@@ -46,6 +47,8 @@ def create_relayout_generator(model: BaseChatModel | None = None) -> DeepSeekRel
 
 
 async def startup(ctx: dict[str, Any]) -> None:
+    # 日志行携带 trace_id（obs#1）；不配置时保持 arq 默认行为
+    setup_logging()
     # 模型在进程内复用：每个任务新建连接池会显著抬高首字节延迟
     model = create_chat_model()
     ctx["chat_model"] = model

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import Any
 
@@ -7,8 +8,10 @@ from sqlalchemy.orm import selectinload
 from app.core.db import async_session_factory
 from app.domain.outline import OutlinePage
 from app.llm.base import OutlineGenerationInput, OutlineGenerator, OutlineSourceSection
-from app.llm.errors import LLMNotConfiguredError
+from app.llm.errors import InvalidModelOutputError, LLMNotConfiguredError
 from app.models.project import Project
+from app.observability import context
+from app.observability.recorder import finish_trace
 from app.schemas.outline import OutlineEvent
 from app.services.outline_inputs import project_input_signature
 from app.services.outline_progress import publish_outline_event
@@ -18,13 +21,38 @@ from app.workflows.outline import build_outline_workflow, run_outline_workflow
 
 __all__ = ["create_outline_generator", "generate_outline"]
 
+logger = logging.getLogger(__name__)
 
-async def generate_outline(ctx: dict[str, Any], project_id: str, job_id: str) -> None:
+
+async def generate_outline(
+    ctx: dict[str, Any],
+    project_id: str,
+    job_id: str,
+    trace_id: str | None = None,
+) -> None:
+    parsed_trace = uuid.UUID(trace_id) if trace_id else None
+    trace_token = context.set_trace_id(parsed_trace)
+    try:
+        await _generate_outline(ctx, project_id, job_id, parsed_trace)
+    finally:
+        context.reset_trace_id(trace_token)
+
+
+async def _generate_outline(
+    ctx: dict[str, Any],
+    project_id: str,
+    job_id: str,
+    trace_id: uuid.UUID | None,
+) -> None:
     project_uuid = uuid.UUID(project_id)
+    logger.info("outline 任务开始 job_id=%s", job_id)
     await _progress(project_uuid, 10, "正在整理输入材料")
 
     loaded = await _load_generation_input(project_uuid, job_id)
     if loaded is None:
+        # stale job 被新任务取代：按取消收口而不是成功
+        if trace_id is not None:
+            await finish_trace(trace_id, "cancelled", error_code="stale_job")
         return
     payload, input_signature, expected_revision = loaded
 
@@ -47,12 +75,27 @@ async def generate_outline(ctx: dict[str, Any], project_id: str, job_id: str) ->
         retry = retry_after_failure(ctx, error)
         if retry is not None:
             await _progress(project_uuid, 30, "模型调用失败，正在重试")
+            # arq 会重跑同一 job，trace 继续跑，此处不收口
             raise retry from error
-        await _save_failed(project_uuid, job_id, _public_error(error))
+        message = _public_error(error)
+        if trace_id is not None:
+            await finish_trace(
+                trace_id,
+                "failed",
+                error_code=_error_code(error),
+                error_message=message,
+            )
+        await _save_failed(project_uuid, job_id, message)
         return
 
     if revision is None:
+        if trace_id is not None:
+            await finish_trace(trace_id, "cancelled", error_code="stale_job")
         return
+
+    if trace_id is not None:
+        await finish_trace(trace_id, "succeeded")
+    logger.info("outline 任务完成 job_id=%s", job_id)
 
     await publish_outline_event(
         project_uuid,
@@ -187,3 +230,11 @@ def _public_error(error: Exception) -> str:
         return str(error)
     # 不把供应商响应或完整输入材料落库，避免错误信息成为敏感数据旁路。
     return "模型生成大纲失败，请稍后重试"
+
+
+def _error_code(error: Exception) -> str:
+    if isinstance(error, LLMNotConfiguredError):
+        return "llm_not_configured"
+    if isinstance(error, InvalidModelOutputError):
+        return "llm_error"
+    return "internal_error"

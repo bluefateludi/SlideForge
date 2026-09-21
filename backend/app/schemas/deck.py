@@ -56,6 +56,8 @@ class DeckGenerateAccepted(BaseModel):
     status: Literal["generating"] = "generating"
     total: int
     pending: int
+    # 观测链路锚点（obs#1）：埋点失败时为 None，前端可忽略
+    trace_id: uuid.UUID | None = None
 
 
 class DeckEvent(BaseModel):
@@ -160,9 +162,7 @@ class BlockStyleUpdate(BaseModel):
 
 class BlockCreateRequest(BaseModel):
     revision: int
-    type: Literal[
-        "text", "bullets", "image", "chart", "table", "kpi", "cards", "callout"
-    ]
+    type: Literal["text", "bullets", "image", "chart", "table", "kpi", "cards", "callout"]
     parent_id: str
     index: int = 0
 

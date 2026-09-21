@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from dataclasses import dataclass
@@ -131,13 +132,22 @@ class StructuredChatClient:
             raise InvalidModelOutputError("模型返回内容不符合约定结构")
 
         prompt_tokens, completion_tokens = _extract_usage(raw_message)
+        elapsed = time.monotonic() - started
         _recorder.add(
             LLMUsageRecord(
                 purpose=purpose,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
-                elapsed_seconds=time.monotonic() - started,
+                elapsed_seconds=elapsed,
             )
+        )
+        # 观测日志（obs#1）：trace_id 由 TraceIdFilter 自动携带，这里只补调用细节
+        logging.getLogger(__name__).info(
+            "LLM 调用完成 purpose=%s elapsed=%.1fs prompt_tokens=%d completion_tokens=%d",
+            purpose,
+            elapsed,
+            prompt_tokens,
+            completion_tokens,
         )
 
         if isinstance(parsed, schema):
