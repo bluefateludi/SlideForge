@@ -102,6 +102,10 @@ class FakeService:
             if not request.content:
                 return _response({"detail": "空文件"}, status=422)
             return _response({"id": "src-1", "char_count": 30}, status=201)
+        if path.endswith("/sources") and method == "POST":
+            body = json.loads(request.content)
+            assert body["kind"] == "topic" and body["content"], "主题题必须带题面注册 topic source"
+            return _response({"id": "src-topic", "char_count": len(body["content"])}, status=201)
         if path.endswith("/outline/generate"):
             return _response({"job_id": "j1", "status": "generating"}, status=202)
         if path.endswith("/outline") and method == "GET":
@@ -212,10 +216,11 @@ class TestHappyPath:
         assert artifacts.total_slides == 5
         assert artifacts.deck_response is not None
 
-        # 关键编排顺序：注册 → 建项目 → 大纲生成 → 轮询 → 确认 → 页面生成 → 轮询 → 导出
+        # 关键编排顺序：注册 → 建项目 → topic source → 大纲 → 轮询 → 确认 → 页面 → 轮询 → 导出
         expected_order = [
             ("POST", "/api/v1/auth/register"),
             ("POST", "/api/v1/projects"),
+            ("POST", "/api/v1/projects/proj-1/sources"),
             ("POST", "/api/v1/projects/proj-1/outline/generate"),
             ("GET", "/api/v1/projects/proj-1/outline"),
             ("POST", "/api/v1/projects/proj-1/outline/confirm"),
@@ -226,7 +231,7 @@ class TestHappyPath:
         calls = service.calls
         for step in expected_order:
             assert step in calls, f"缺少编排步骤 {step}；实际调用：{calls}"
-        # 主题题不应上传材料
+        # 主题题不应走文档上传
         assert not any("/sources/upload" in path for _, path in calls)
 
     async def test_document_case_uploads_source(self, tmp_path: Path) -> None:
