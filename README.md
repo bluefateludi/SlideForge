@@ -2,6 +2,16 @@
 
 输入一句主题、粘贴一段长文本，或者上传 PDF、Word、Markdown、TXT 文档，先生成一份可修改的大纲，再并发生成完整页面，最终导出原生可编辑的 PPTX 文件。
 
+## 界面预览
+
+| 大纲先行，改完再生成 | 在线编辑，逐页精修 |
+|---|---|
+| ![大纲编辑](docs/screenshots/outline.png) | ![编辑器](docs/screenshots/editor.png) |
+
+| 导出前质量检查 | 生成质量评测 |
+|---|---|
+| ![导出检查](docs/screenshots/export-check.png) | ![评测详情](docs/screenshots/eval-detail.png) |
+
 ## 一、项目介绍
 
 这是一个以 **AI 工程化 + 文档渲染 + 异步任务编排** 为核心的全栈项目，基于 FastAPI + LangChain + LangGraph + python-pptx + React 开发。
