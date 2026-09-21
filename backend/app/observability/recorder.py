@@ -7,9 +7,11 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -187,3 +189,45 @@ async def latest_outline_trace_id(project_id: uuid.UUID) -> uuid.UUID | None:
     except Exception:
         logger.warning("latest_outline_trace_id 查询失败（project=%s）", project_id)
         return None
+
+
+async def trace_exists(trace_id: uuid.UUID) -> bool:
+    """确认 trace 仍存在（export 挂靠前检查）；查询失败按不存在处理。"""
+    try:
+        async with async_session_factory() as session:
+            return await session.get(Trace, trace_id) is not None
+    except Exception:
+        logger.warning("trace_exists 查询失败（trace=%s）", trace_id)
+        return False
+
+
+def traced_node(
+    name: str,
+    span_kind: str = "node",
+    *,
+    attributes: Callable[[dict], dict] | None = None,
+):
+    """LangGraph 节点协程的 span 包装（obs#2）。
+
+    不改图结构：``prepare = traced_node("outline.prepare")(prepare)``。
+    进入时开 span 并把 span_id 压入 contextvar（节点内 LLM 调用自动挂成
+    子 span）；无 trace 上下文时零开销直通。attributes 回调拿到节点返回的
+    state diff（只含新增键），拿不到的值（如 repair 轮次）就地省略。
+    """
+
+    def decorator(node: Callable[..., Awaitable[dict]]):
+        @functools.wraps(node)
+        async def wrapper(state):
+            if attributes is not None:
+                try:
+                    extra = attributes(state)
+                except Exception:
+                    extra = None
+            else:
+                extra = None
+            async with span(name, span_kind, **(extra or {})):
+                return await node(state)
+
+        return wrapper
+
+    return decorator

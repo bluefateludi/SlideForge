@@ -19,7 +19,7 @@ from app.llm.errors import LLMNotConfiguredError
 from app.models.project import Project
 from app.models.slide import Slide
 from app.observability import context
-from app.observability.recorder import finish_trace
+from app.observability.recorder import finish_trace, span
 from app.schemas.deck import DeckEvent
 from app.services.deck import (
     clear_cancel,
@@ -64,6 +64,8 @@ async def _generate_deck(
     job_id: str | None,
 ) -> None:
     logger.info("deck 任务开始 job_id=%s", job_id)
+    # ARQ 重试次数无 span 自然挂点，记在任务入口日志即可检索
+    logger.info("deck 任务重试信息 job_id=%s job_try=%d", job_id, int(ctx.get("job_try", 1)))
     project_uuid = uuid.UUID(project_id)
     targets = [uuid.UUID(value) for value in slide_ids]
     context_info = await _load_context(project_uuid)
@@ -129,11 +131,50 @@ async def _generate_one(
         return
     await _publish(project_id, "slide_started", f"正在生成第 {page.position} 页", slide_id, page)
 
+    payload = await _build_payload(slide_id, page, context)
+    # 每页一个 task span（obs#2）：页内 node/llm span 经 contextvar 自动挂在它下面；
+    # deck 任务逐页 asyncio.Task 复制当前上下文，各页 span 互不串线
+    async with span(
+        f"slide[{page.position}]", "task", slide_id=str(slide_id), position=page.position
+    ):
+        try:
+            slide, issues = await run_slide_workflow(
+                workflow,
+                payload,
+                slide_id,
+                theme_id=context.theme_id,
+                theme_overrides=context.theme_overrides,
+            )
+        except Exception as error:
+            # span 上下文管理器会把异常记为 failed 并透传，这里捕获转公开错误
+            await _save_failed(slide_id, _public_error(error))
+            await _publish(
+                project_id, "slide_failed", f"第 {page.position} 页生成失败", slide_id, page
+            )
+            return
+
+    slide = await resolve_slide_images(
+        pipeline,
+        user_id=context.user_id,
+        project_id=project_id,
+        deck_title=context.title,
+        page_title=page.page.title,
+        slide=slide,
+    )
+    await _save_ready(slide_id, slide, issues, intended_mode=context.layout_mode)
+    await _publish(project_id, "slide_completed", f"第 {page.position} 页已完成", slide_id, page)
+
+
+async def _build_payload(
+    slide_id: uuid.UUID,
+    page: "SlideTarget",
+    context: "DeckContext",
+) -> SlideGenerationInput:
     from app.domain.content_density import normalize_page_role
 
     page_role = normalize_page_role(getattr(page.page, "page_role", None))
     visual_hint = getattr(page.page, "visual", None)
-    payload = SlideGenerationInput(
+    return SlideGenerationInput(
         deck_title=context.title,
         audience=context.audience,
         tone=context.tone,
@@ -157,30 +198,6 @@ async def _generate_one(
         ),
         allow_callout=allows_callout(page.position),
     )
-
-    try:
-        slide, issues = await run_slide_workflow(
-            workflow,
-            payload,
-            slide_id,
-            theme_id=context.theme_id,
-            theme_overrides=context.theme_overrides,
-        )
-    except Exception as error:
-        await _save_failed(slide_id, _public_error(error))
-        await _publish(project_id, "slide_failed", f"第 {page.position} 页生成失败", slide_id, page)
-        return
-
-    slide = await resolve_slide_images(
-        pipeline,
-        user_id=context.user_id,
-        project_id=project_id,
-        deck_title=context.title,
-        page_title=page.page.title,
-        slide=slide,
-    )
-    await _save_ready(slide_id, slide, issues, intended_mode=context.layout_mode)
-    await _publish(project_id, "slide_completed", f"第 {page.position} 页已完成", slide_id, page)
 
 
 class DeckContext:

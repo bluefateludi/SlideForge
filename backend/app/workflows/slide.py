@@ -14,6 +14,7 @@ from app.domain.theme import resolve_theme
 from app.domain.validation import StructureIssue, validate_slide
 from app.llm.base import SlideGenerationInput, SlideGenerator
 from app.llm.errors import InvalidSlideOutputError
+from app.observability.recorder import traced_node
 
 # 只修一轮：结构 error 或过瘦/空话；溢出/容量 warning 不触发砍块重写。
 # generate 节点内部是 LCEL json_mode；校验与条件修复留在 Graph。
@@ -124,6 +125,11 @@ def build_slide_workflow(generator: SlideGenerator):
         repaired = state["input"].model_copy(update={"issues": messages})
         return {"input": repaired, "repairs": state.get("repairs", 0) + 1}
 
+    def _repair_attributes(state: SlideWorkflowState) -> dict:
+        # 修复轮数在 prepare 里初始化，进 repair 前一定存在；拿不到就整个省略
+        rounds = state.get("repairs")
+        return {"repair_round": rounds + 1} if isinstance(rounds, int) else {}
+
     def route(state: SlideWorkflowState) -> str:
         if state.get("repairs", 0) >= MAX_REPAIR_ROUNDS:
             return END
@@ -132,10 +138,10 @@ def build_slide_workflow(generator: SlideGenerator):
         return END
 
     graph = StateGraph(SlideWorkflowState)
-    graph.add_node("prepare", prepare)
-    graph.add_node("generate", generate)
-    graph.add_node("check", check)
-    graph.add_node("repair", repair)
+    graph.add_node("prepare", traced_node("slide.prepare")(prepare))
+    graph.add_node("generate", traced_node("slide.generate")(generate))
+    graph.add_node("check", traced_node("slide.check")(check))
+    graph.add_node("repair", traced_node("slide.repair", attributes=_repair_attributes)(repair))
     graph.add_edge(START, "prepare")
     graph.add_edge("prepare", "generate")
     graph.add_edge("generate", "check")
