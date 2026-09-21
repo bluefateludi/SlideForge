@@ -26,6 +26,8 @@ class OutlinePublic(BaseModel):
 class OutlineGenerateAccepted(BaseModel):
     job_id: str
     status: Literal["generating"] = "generating"
+    # 观测链路锚点（obs#1）：埋点失败时为 None，前端可忽略
+    trace_id: uuid.UUID | None = None
 
 
 class OutlineUpdate(BaseModel):

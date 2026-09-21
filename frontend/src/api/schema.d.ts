@@ -1317,6 +1317,8 @@ export interface components {
             total: number;
             /** Pending */
             pending: number;
+            /** Trace Id */
+            trace_id?: string | null;
         };
         /** DeckGenerateRequest */
         DeckGenerateRequest: {
@@ -2078,6 +2080,8 @@ export interface components {
              * @constant
              */
             status: "generating";
+            /** Trace Id */
+            trace_id?: string | null;
         };
         /** OutlinePage */
         OutlinePage: {

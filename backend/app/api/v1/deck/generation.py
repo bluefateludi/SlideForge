@@ -10,6 +10,10 @@ from app.api.sse import event_stream_response
 from app.api.v1.deck._shared import QueueDep, SessionDep, _ensure_idle
 from app.api.v1.projects import OwnedProject
 from app.models.project import Project
+from app.observability.recorder import (
+    latest_outline_trace_id,
+    start_trace,
+)
 from app.schemas.deck import DeckEvent, DeckGenerateAccepted, DeckGenerateRequest
 from app.services.deck import (
     clear_cancel,
@@ -41,16 +45,35 @@ async def _enqueue(
     slide_ids: list[uuid.UUID],
     *,
     previous_status: str,
-) -> str:
+) -> tuple[str, uuid.UUID | None]:
+    """入队并创建 deck trace；返回 (job_id, trace_id)。
+
+    修复点（obs#1）：job_id 此前只用于 arq 去重，没传给 worker 也没落库；
+    现在随 traces.job_id 落库并作为任务参数传入 worker。
+    """
     # 取消标记由发起方清理：新一轮生成理应从干净状态开始，
     # 放在任务里清会与「先取消再立刻重发」的时序抢跑。
     await clear_cancel(project.id)
     job_id = f"deck-{project.id}-{uuid.uuid4().hex}"
+    # linked_trace_id 指向本项目最近一次大纲 trace，串起「大纲 → 页面」因果链
+    linked = await latest_outline_trace_id(project.id)
+    trace_id = await start_trace(
+        kind="deck",
+        project_id=project.id,
+        job_id=job_id,
+        linked_trace_id=linked,
+    )
+    if trace_id is not None:
+        # 导出归属锚点；与 traces 的引用刻意不加 FK（见 Project.last_deck_trace_id 注释）
+        project.last_deck_trace_id = trace_id
+        await session.commit()
     try:
         job = await queue.enqueue_job(
             "generate_deck",
             str(project.id),
             [str(slide_id) for slide_id in slide_ids],
+            str(trace_id) if trace_id is not None else None,
+            job_id,
             _job_id=job_id,
         )
     except RedisError as error:
@@ -63,7 +86,7 @@ async def _enqueue(
         ) from error
     if job is None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务已存在")
-    return job_id
+    return job_id, trace_id
 
 
 @router.post(
@@ -93,7 +116,7 @@ async def generate_deck(
     project.status = "generating"
     await session.commit()
 
-    job_id = await _enqueue(
+    job_id, trace_id = await _enqueue(
         queue, session, project, pending_ids, previous_status=previous_status
     )
     await deck_events.publish(
@@ -107,7 +130,12 @@ async def generate_deck(
             total=len(slides),
         ),
     )
-    return DeckGenerateAccepted(job_id=job_id, total=len(slides), pending=len(pending_ids))
+    return DeckGenerateAccepted(
+        job_id=job_id,
+        total=len(slides),
+        pending=len(pending_ids),
+        trace_id=trace_id,
+    )
 
 
 @router.post(
@@ -135,10 +163,10 @@ async def retry_slide(
     project.status = "generating"
     await session.commit()
 
-    job_id = await _enqueue(
+    job_id, _trace_id = await _enqueue(
         queue, session, project, [slide_id], previous_status=previous_status
     )
-    return DeckGenerateAccepted(job_id=job_id, total=len(slides), pending=1)
+    return DeckGenerateAccepted(job_id=job_id, total=len(slides), pending=1, trace_id=_trace_id)
 
 
 @router.post("/cancel", status_code=status.HTTP_202_ACCEPTED)

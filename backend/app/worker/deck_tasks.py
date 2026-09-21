@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import uuid
 from typing import Any
 
@@ -17,6 +18,8 @@ from app.llm.base import OutlineSourceSection, SlideGenerationInput, SlideGenera
 from app.llm.errors import LLMNotConfiguredError
 from app.models.project import Project
 from app.models.slide import Slide
+from app.observability import context
+from app.observability.recorder import finish_trace
 from app.schemas.deck import DeckEvent
 from app.services.deck import (
     clear_cancel,
@@ -30,17 +33,43 @@ from app.services.slide_images import resolve_slide_images
 from app.worker.context import create_slide_generator
 from app.workflows.slide import build_slide_workflow, run_slide_workflow
 
+logger = logging.getLogger(__name__)
 
-async def generate_deck(ctx: dict[str, Any], project_id: str, slide_ids: list[str]) -> None:
+
+async def generate_deck(
+    ctx: dict[str, Any],
+    project_id: str,
+    slide_ids: list[str],
+    trace_id: str | None = None,
+    job_id: str | None = None,
+) -> None:
     """并发生成指定页面。
 
     编排任务只做三件事：限流、逐页派发、汇报进度。真正的生成逻辑在
     单页工作流里，因此「整份生成」和「单页重试」走的是同一条代码路径。
     """
+    parsed_trace = uuid.UUID(trace_id) if trace_id else None
+    trace_token = context.set_trace_id(parsed_trace)
+    try:
+        await _generate_deck(ctx, project_id, slide_ids, parsed_trace, job_id)
+    finally:
+        context.reset_trace_id(trace_token)
+
+
+async def _generate_deck(
+    ctx: dict[str, Any],
+    project_id: str,
+    slide_ids: list[str],
+    trace_id: uuid.UUID | None,
+    job_id: str | None,
+) -> None:
+    logger.info("deck 任务开始 job_id=%s", job_id)
     project_uuid = uuid.UUID(project_id)
     targets = [uuid.UUID(value) for value in slide_ids]
-    context = await _load_context(project_uuid)
-    if context is None:
+    context_info = await _load_context(project_uuid)
+    if context_info is None:
+        if trace_id is not None:
+            await finish_trace(trace_id, "cancelled", error_code="stale_job")
         return
 
     generator: SlideGenerator = ctx.get("slide_generator") or create_slide_generator()
@@ -61,14 +90,28 @@ async def generate_deck(ctx: dict[str, Any], project_id: str, slide_ids: list[st
             if cancelled or await is_cancelled(project_uuid):
                 cancelled = True
                 return
-            await _generate_one(project_uuid, slide_id, context, workflow, pipeline)
+            await _generate_one(project_uuid, slide_id, context_info, workflow, pipeline)
 
     try:
         await asyncio.gather(*(run_one(slide_id) for slide_id in targets))
     finally:
         if owned_client is not None:
             await owned_client.aclose()
-    await _finish(project_uuid, cancelled=cancelled)
+    outcome, failed_count = await _finish(project_uuid, cancelled=cancelled)
+
+    if trace_id is not None:
+        if outcome == "cancelled":
+            await finish_trace(trace_id, "cancelled", error_code="cancelled")
+        elif outcome == "failed":
+            await finish_trace(
+                trace_id,
+                "failed",
+                error_code="slide_failures",
+                error_message=f"{failed_count} 页失败",
+            )
+        else:
+            await finish_trace(trace_id, "succeeded")
+    logger.info("deck 任务结束 job_id=%s status=%s", job_id, outcome)
 
 
 async def _generate_one(
@@ -320,7 +363,8 @@ async def _publish(
     )
 
 
-async def _finish(project_id: uuid.UUID, *, cancelled: bool) -> None:
+async def _finish(project_id: uuid.UUID, *, cancelled: bool) -> tuple[str, int]:
+    """收口项目状态并发布终态事件；返回 (trace 终态, 失败页数)。"""
     async with async_session_factory() as session:
         project = await session.get(Project, project_id)
         slides = await load_slides(session, project_id)
@@ -358,6 +402,7 @@ async def _finish(project_id: uuid.UUID, *, cancelled: bool) -> None:
             total=total,
         ),
     )
+    return ("cancelled" if cancelled else ("failed" if failed else "succeeded"), failed)
 
 
 def _public_error(error: Exception) -> str:
