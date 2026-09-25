@@ -45,3 +45,5 @@ class OutlineEvent(BaseModel):
     progress: int = Field(ge=0, le=100)
     message: str
     revision: int | None = None
+    # 观测链路锚点（obs#7）：生成中即可跳转追踪页；旧事件/快照缺省为 None
+    trace_id: uuid.UUID | None = None

@@ -13,4 +13,6 @@ export interface OutlineProgressEvent {
   progress: number
   message: string
   revision?: number | null
+  /** 观测链路锚点（obs#7）：旧事件/快照缺省，前端取最新非空值 */
+  trace_id?: string | null
 }

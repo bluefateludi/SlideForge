@@ -378,6 +378,7 @@ async def _publish(
             ready=ready,
             failed=failed,
             total=total,
+            trace_id=context.current_trace_id(),
         ),
     )
 
@@ -419,6 +420,7 @@ async def _finish(project_id: uuid.UUID, *, cancelled: bool) -> tuple[str, int]:
             ready=ready,
             failed=failed,
             total=total,
+            trace_id=context.current_trace_id(),
         ),
     )
     return ("cancelled" if cancelled else ("failed" if failed else "succeeded"), failed)

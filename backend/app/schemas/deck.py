@@ -78,6 +78,8 @@ class DeckEvent(BaseModel):
     ready: int = 0
     failed: int = 0
     total: int = 0
+    # 观测链路锚点（obs#7）：生成中即可跳转追踪页；旧事件/快照缺省为 None
+    trace_id: uuid.UUID | None = None
 
 
 class TextBlockUpdate(BaseModel):
