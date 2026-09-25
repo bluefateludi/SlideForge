@@ -105,6 +105,7 @@ async def _generate_outline(
             progress=100,
             message="大纲已生成",
             revision=revision,
+            trace_id=context.current_trace_id(),
         ),
     )
 
@@ -209,6 +210,7 @@ async def _save_failed(project_id: uuid.UUID, job_id: str, message: str) -> None
             status="failed",
             progress=100,
             message=message,
+            trace_id=context.current_trace_id(),
         ),
     )
 
@@ -221,6 +223,7 @@ async def _progress(project_id: uuid.UUID, progress: int, message: str) -> None:
             status="generating",
             progress=progress,
             message=message,
+            trace_id=context.current_trace_id(),
         ),
     )
 

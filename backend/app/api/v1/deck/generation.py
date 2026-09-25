@@ -128,6 +128,7 @@ async def generate_deck(
             message=f"{len(pending_ids)} 页已进入队列",
             ready=sum(1 for slide in slides if slide.status == "ready"),
             total=len(slides),
+            trace_id=trace_id,
         ),
     )
     return DeckGenerateAccepted(

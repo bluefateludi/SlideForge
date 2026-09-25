@@ -138,6 +138,7 @@ async def generate_outline(
             progress=0,
             message="任务已进入队列",
             revision=outline.revision,
+            trace_id=trace_id,
         ),
     )
     return OutlineGenerateAccepted(job_id=job_id, trace_id=trace_id)

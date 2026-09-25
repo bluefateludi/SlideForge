@@ -100,6 +100,8 @@ export interface DeckProgressEvent {
   ready: number
   failed: number
   total: number
+  /** 观测链路锚点（obs#7）：旧事件/快照缺省，前端取最新非空值 */
+  trace_id?: string | null
 }
 
 export function imageBlocks(slide: DeckSlide): ImageBlock[] {

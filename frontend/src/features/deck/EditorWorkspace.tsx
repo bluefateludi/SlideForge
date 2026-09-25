@@ -1,5 +1,6 @@
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { WorkbenchHeader } from '@/components/WorkbenchHeader'
 import { Button } from '@/components/ui/Button'
 import {
@@ -140,6 +141,15 @@ export function EditorWorkspace({ project }: { project: ProjectDetail }) {
             <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-accent-soft px-2.5 py-0.5 text-[11px] font-medium text-accent tabular-nums">
               <Loader2 className="size-3 animate-spin" />
               {ready} / {total} 页
+              {progress.traceId && (
+                <Link
+                  to={`/trace/${progress.traceId}`}
+                  title="查看本次生成的追踪瀑布"
+                  className="underline decoration-dotted underline-offset-2 transition-colors hover:brightness-110"
+                >
+                  查看追踪
+                </Link>
+              )}
             </span>
           ) : failed > 0 ? (
             <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-negative/10 px-2.5 py-0.5 text-[11px] font-medium text-negative">

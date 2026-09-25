@@ -1,5 +1,6 @@
 import { Check, GripVertical, Loader2, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { WorkbenchHeader } from '@/components/WorkbenchHeader'
 import { Button } from '@/components/ui/Button'
 import { useGenerateOutline, useOutline, useUpdateOutline } from '@/features/outline/api'
@@ -48,6 +49,15 @@ export function OutlineWorkspace({ project }: { project: ProjectDetail }) {
           <p className="mt-3 text-xs text-ink-muted">
             {progress.connectionError ? '进度连接中断，正在重连…' : '大纲只规划目标与要点，不生成正文'}
           </p>
+          {progress.traceId && (
+            <Link
+              to={`/trace/${progress.traceId}`}
+              title="查看本次生成的追踪瀑布"
+              className="mt-3 inline-block text-xs font-medium text-accent transition-colors hover:brightness-110"
+            >
+              查看追踪
+            </Link>
+          )}
         </CenterCard>
       </Shell>
     )

@@ -16,8 +16,11 @@ interface Options<T> {
  *
  * 服务端每条事件都带完整状态，因此重连不需要补发历史：
  * 拿到的第一帧就是当前快照。
+ *
+ * trace_id 取事件里最新的非空值：旧快照缺省不影响，新一轮生成
+ * 的第一条带锚点事件会覆盖旧值（obs#7）。
  */
-export function useEventStream<T extends { type: string }>({
+export function useEventStream<T extends { type: string; trace_id?: string | null }>({
   path,
   active,
   terminalTypes,
@@ -25,6 +28,7 @@ export function useEventStream<T extends { type: string }>({
 }: Options<T>) {
   const [event, setEvent] = useState<T | null>(null)
   const [connectionError, setConnectionError] = useState(false)
+  const [traceId, setTraceId] = useState<string | null>(null)
   // 回调每次渲染都是新引用，放进依赖会让连接不断重建
   const handlerRef = useRef(onEvent)
   handlerRef.current = onEvent
@@ -43,6 +47,7 @@ export function useEventStream<T extends { type: string }>({
         try {
           await consumeEventStream<T>(path, controller.signal, (next) => {
             setEvent(next)
+            if (next.trace_id) setTraceId(next.trace_id)
             setConnectionError(false)
             handlerRef.current?.(next)
             if (terminalTypes.includes(next.type)) finished = true
@@ -62,5 +67,5 @@ export function useEventStream<T extends { type: string }>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, path])
 
-  return { event, connectionError }
+  return { event, connectionError, traceId }
 }
