@@ -21,8 +21,11 @@ from app.domain.edit_ops import (
 from app.domain.flex_layout import FlexContainer
 from app.domain.slide_patch import apply_patches, filter_patches, unlocked_editable_blocks
 from app.llm.base import AiEditHistoryTurn, SlideEditInput
+from app.llm.client import _is_timeout
 from app.llm.errors import InvalidSlideEditOutputError, LLMNotConfiguredError
 from app.llm.slide_edit import block_to_edit_input
+from app.observability import codes, context
+from app.observability.recorder import finish_trace, start_trace
 from app.schemas.deck import (
     AiEditApplyRequest,
     AiEditOperationPublic,
@@ -84,6 +87,10 @@ async def propose_slide_ai_edit(
         layout_tree=layout_tree,
     )
 
+    # 一次 AI 编辑一条 trace（obs#6）：同步路径在请求出口即收口，
+    # 不经队列、worker 无关。trace 建失败（返回 None）时全程降级为不记录。
+    trace_id = await start_trace(kind="ai_edit", project_id=project.id)
+    token = context.set_trace_id(trace_id) if trace_id is not None else None
     workflow = build_slide_edit_workflow(create_slide_edit_generator())
     try:
         operations, discarded, issues, _patched = await run_slide_edit_workflow(
@@ -98,15 +105,30 @@ async def propose_slide_ai_edit(
             theme_overrides=dict(project.theme_overrides or {}),
         )
     except LLMNotConfiguredError as error:
+        await _finish_ai_edit_trace(trace_id, codes.LLM_NOT_CONFIGURED, str(error))
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=str(error),
         ) from error
     except InvalidSlideEditOutputError as error:
+        await _finish_ai_edit_trace(trace_id, codes.LLM_ERROR, str(error))
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(error),
         ) from error
+    except Exception as error:
+        # 工具循环超时（openai.APITimeoutError 等）记 llm_timeout，其余按内部错误；
+        # 意外异常不落原文，只留类名，避免供应商响应成为敏感数据旁路。
+        if _is_timeout(error):
+            await _finish_ai_edit_trace(trace_id, codes.LLM_TIMEOUT, str(error))
+        else:
+            await _finish_ai_edit_trace(trace_id, codes.INTERNAL_ERROR, error.__class__.__name__)
+        raise
+    else:
+        await _finish_ai_edit_trace(trace_id, None, None)
+    finally:
+        if token is not None:
+            context.reset_trace_id(token)
 
     return AiEditProposalPublic(
         revision=slide.revision,
@@ -127,6 +149,21 @@ async def propose_slide_ai_edit(
             for item in discarded
         ],
         warnings=[issue for issue in issues if issue.severity == "warning"],
+        trace_id=trace_id,
+    )
+
+
+async def _finish_ai_edit_trace(
+    trace_id: uuid.UUID | None, error_code: str | None, error_message: str | None
+) -> None:
+    """收口 ai_edit trace；error_code 为 None 即成功。trace_id 为 None 时是空操作。"""
+    if trace_id is None:
+        return
+    await finish_trace(
+        trace_id,
+        "succeeded" if error_code is None else "failed",
+        error_code=error_code,
+        error_message=error_message,
     )
 
 

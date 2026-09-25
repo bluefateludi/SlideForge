@@ -280,6 +280,8 @@ class AiEditProposalPublic(BaseModel):
     operations: list[AiEditOperationPublic]
     discarded: list[DiscardedOperationPublic]
     warnings: list[StructureIssue]
+    # 本次 AI 编辑的 trace（obs#6）；trace 建失败时为 None，编辑结果照常返回
+    trace_id: uuid.UUID | None = None
 
 
 class AiEditApplyRequest(BaseModel):

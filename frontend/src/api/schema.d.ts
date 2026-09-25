@@ -973,6 +973,8 @@ export interface components {
             discarded: components["schemas"]["DiscardedOperationPublic"][];
             /** Warnings */
             warnings: components["schemas"]["StructureIssue"][];
+            /** Trace Id */
+            trace_id?: string | null;
         };
         /** AiEditRequest */
         AiEditRequest: {
@@ -2075,13 +2077,13 @@ export interface components {
         /**
          * KindSuccessRate
          * @description 单 kind 的 trace 成功率。
+         *
+         *     kind 用 str 而非 Literal：traces 表会先于 schema 出现新 kind
+         *     （如 ai_edit），响应模型按已知枚举收紧会让整个端点 500。
          */
         KindSuccessRate: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "outline" | "deck";
+            /** Kind */
+            kind: string;
             /** Succeeded */
             succeeded: number;
             /** Total */
@@ -3096,11 +3098,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "outline" | "deck";
+            /** Kind */
+            kind: string;
             /**
              * Status
              * @enum {string}
