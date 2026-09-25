@@ -7,6 +7,7 @@ from app.domain.slide_geometry import placed_by_block_id
 from app.images.base import ImageRequest
 from app.images.pipeline import ImagePipeline
 from app.images.validate import validate_image
+from app.observability.recorder import finish_span, start_span
 from app.services.media import media_url, store_image
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,19 @@ async def resolve_slide_images(
     return slide.model_copy(update={"blocks": blocks})
 
 
+async def _record_placeholder_span(*, block_id: str, reason: str) -> None:
+    """占位图兜底 span（obs#5）：兜底成功是设计内结果，status 恒 succeeded。
+
+    埋点失败由 recorder 自行吞掉，这里不需要再包 try。
+    """
+    handle = await start_span(
+        "image.placeholder",
+        "image",
+        attributes={"provider": "placeholder", "block_id": block_id, "reason": reason},
+    )
+    await finish_span(handle, "succeeded")
+
+
 async def _resolve_one(
     pipeline: ImagePipeline,
     *,
@@ -77,6 +91,7 @@ async def _resolve_one(
             )
         )
         if asset is None:
+            await _record_placeholder_span(block_id=block.id, reason="图源未命中")
             return block
 
         extension, _content_type = validate_image(asset.data)
@@ -96,4 +111,5 @@ async def _resolve_one(
     except Exception as error:
         # 一张图不该让整页失败：校验、存储、甚至意外异常都只降级到占位
         logger.warning("配图异常，保留占位图：%s", error)
+        await _record_placeholder_span(block_id=block.id, reason="配图落地异常")
         return block

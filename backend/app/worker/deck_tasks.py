@@ -133,7 +133,8 @@ async def _generate_one(
 
     payload = await _build_payload(slide_id, page, context)
     # 每页一个 task span（obs#2）：页内 node/llm span 经 contextvar 自动挂在它下面；
-    # deck 任务逐页 asyncio.Task 复制当前上下文，各页 span 互不串线
+    # deck 任务逐页 asyncio.Task 复制当前上下文，各页 span 互不串线。
+    # 配图解析也在该 span 内进行（obs#5）：image.* 子 span 同挂页 span 下
     async with span(
         f"slide[{page.position}]", "task", slide_id=str(slide_id), position=page.position
     ):
@@ -153,14 +154,15 @@ async def _generate_one(
             )
             return
 
-    slide = await resolve_slide_images(
-        pipeline,
-        user_id=context.user_id,
-        project_id=project_id,
-        deck_title=context.title,
-        page_title=page.page.title,
-        slide=slide,
-    )
+        slide = await resolve_slide_images(
+            pipeline,
+            user_id=context.user_id,
+            project_id=project_id,
+            deck_title=context.title,
+            page_title=page.page.title,
+            slide=slide,
+        )
+
     await _save_ready(slide_id, slide, issues, intended_mode=context.layout_mode)
     await _publish(project_id, "slide_completed", f"第 {page.position} 页已完成", slide_id, page)
 

@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 
 from app.core.config import get_settings
@@ -5,6 +7,17 @@ from app.images.bailian import BailianImageProvider
 from app.images.base import ImageAsset, ImageProvider, ImageRequest
 from app.images.generated import GeneratedImageProvider
 from app.images.unsplash import UnsplashImageProvider
+from app.observability import codes
+from app.observability.recorder import finish_span, start_span
+
+logger = logging.getLogger(__name__)
+
+# 图片降级链层级 → 子 span 名（obs#5）。span_kind 统一 'image'，
+# 靠名字区分层级；未登记的 source 不埋点，未来新图源接入时在此补充。
+_LEVEL_SPANS: dict[str, str] = {
+    "generated": "image.ai",
+    "stock": "image.unsplash",
+}
 
 
 class ImagePipeline:
@@ -24,11 +37,54 @@ class ImagePipeline:
     async def fetch(self, request: ImageRequest) -> ImageAsset | None:
         for provider in self._providers:
             if not provider.available():
+                # 未配置凭证：没有发生真实调用，不产生 span
                 continue
-            asset = await provider.fetch(request)
+            asset = await self._fetch_level(provider, request)
             if asset is not None:
                 return asset
         return None
+
+    async def _fetch_level(
+        self, provider: ImageProvider, request: ImageRequest
+    ) -> ImageAsset | None:
+        """尝试单级图源，并把该级结果记成 image.* 子 span（obs#5）。
+
+        降级语义：该级没接住（返回 None 或抛异常）记 failed——失败的是
+        这一级图源，不是业务；整体由下一级或占位图兜底。AI 生图级未
+        产出统一记 image_gen_error（provider 内部已把常见异常吞成 None
+        并留有 warning 日志，span 侧不再区分细分原因）。provider 意外
+        抛异常同样收口后继续走降级，业务行为与直接返回 None 一致。
+        """
+        name = _LEVEL_SPANS.get(provider.source)
+        if name is None:
+            return await provider.fetch(request)
+        handle = await start_span(
+            name,
+            "image",
+            attributes={
+                "provider": type(provider).__name__,
+                # provider 实例上的模型名（可得时）；图库类图源没有该属性记 None
+                "model": getattr(provider, "_model", None),
+            },
+        )
+        try:
+            asset = await provider.fetch(request)
+        except Exception as error:
+            await finish_span(
+                handle,
+                "failed",
+                error_code=codes.IMAGE_GEN_ERROR if name == "image.ai" else None,
+                error_message=str(error) or error.__class__.__name__,
+            )
+            logger.warning("%s 图源异常，降级到下一级：%s", name, error)
+            return None
+        if asset is None:
+            await finish_span(
+                handle, "failed", error_code=codes.IMAGE_GEN_ERROR if name == "image.ai" else None
+            )
+            return None
+        await finish_span(handle, "succeeded", model=getattr(provider, "_model", None))
+        return asset
 
 
 def create_image_pipeline(client: httpx.AsyncClient) -> ImagePipeline:

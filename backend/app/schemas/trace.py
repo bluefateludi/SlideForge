@@ -13,7 +13,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-TraceKind = Literal["outline", "deck"]
 TraceStatus = Literal["running", "succeeded", "failed", "cancelled"]
 SpanKind = Literal["task", "node", "llm", "export"]
 SpanStatus = Literal["running", "succeeded", "failed"]
@@ -25,7 +24,8 @@ class TracePublic(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    kind: TraceKind
+    # kind 放宽为 str：表里可能先出现新 kind（如 ai_edit），按 Literal 收紧会让列表端点整体 500
+    kind: str
     status: TraceStatus
     project_id: uuid.UUID
     job_id: str | None = None
@@ -77,9 +77,13 @@ class TraceDetail(BaseModel):
 
 
 class KindSuccessRate(BaseModel):
-    """单 kind 的 trace 成功率。"""
+    """单 kind 的 trace 成功率。
 
-    kind: TraceKind
+    kind 用 str 而非 Literal：traces 表会先于 schema 出现新 kind
+    （如 ai_edit），响应模型按已知枚举收紧会让整个端点 500。
+    """
+
+    kind: str
     succeeded: int
     total: int
     success_rate: float
