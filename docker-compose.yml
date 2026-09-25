@@ -25,5 +25,43 @@ services:
       timeout: 5s
       retries: 5
 
+  # 一次性任务：创建 Grafana 只读账号（幂等 SQL）。已有数据卷不会重跑
+  # initdb 脚本，所以用独立服务在每次 up 时执行；跑完即退出。
+  grafana-db-init:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: aippt
+      PGPASSWORD: aippt
+      PGDATABASE: aippt
+    volumes:
+      - ./ops/grafana/init:/docker-grafana-init:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-f", "/docker-grafana-init/01-grafana-readonly-role.sql"]
+
+  # Grafana 监控面板（obs#8）：数据源与 dashboard 由 ops/grafana/provisioning
+  # 预配（as code），admin/admin 仅限本地开发。
+  grafana:
+    image: grafana/grafana:13.2.2
+    ports:
+      - "39300:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      grafana-db-init:
+        condition: service_completed_successfully
+
 volumes:
   postgres_data:
+  grafana_data:

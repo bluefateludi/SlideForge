@@ -235,3 +235,14 @@ docker compose -f docker-compose.prod.yml run --rm api uv run alembic upgrade he
 ```
 
 浏览器打开 `http://你的公网IP:39880`。
+
+### 监控面板（Grafana，可选）
+
+`make up` 会顺带拉起 Grafana（端口 39300）和一个一次性的只读账号初始化容器。浏览器打开 <http://localhost:39300>，用 `admin` / `admin` 登录，进入 **Dashboards → SlideForge → SlideForge Generation Observability**：
+
+- deck 生成时延 P50/P95 趋势、trace 成功率（按 kind）、slide 成功率
+- token 日消耗（prompt/completion 分列）、失败来源占比（error_code）
+- 节点失败率与平均耗时表
+
+面板 SQL 与后端 `/api/v1/trace/metrics/summary` 同口径（窗口键 `traces.created_at`），数据库连接使用只读账号 `grafana_ro`。数据源与面板均由 `ops/grafana/provisioning/` 以代码预配，改面板后重启 Grafana 容器或等 30s 自动重载即可。至少完整生成过一次 PPT 后面板才有数据。
+
