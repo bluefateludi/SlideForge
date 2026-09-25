@@ -64,9 +64,13 @@ def test_prepare_trims_sections_within_budget() -> None:
 
 @pytest.mark.asyncio
 async def test_workflow_skips_repair_for_capacity_overflow() -> None:
-    """容量/溢出 warning 只提示，不触发整页重写。"""
-    too_long = ["超出容量的要点" * 12] * 9
-    generator = ScriptedGenerator([_draft(too_long)])
+    """容量/溢出 warning 只提示，不触发整页重写。
+
+    构造须避开画布底边越界（那条是 error、会触发自纠）：
+    用超条数的短要点触发 max_items，而不用超长文本。
+    """
+    too_many = [f"第 {i} 条要点：包含足够信息量的一条中等长度说明文字" for i in range(1, 10)]
+    generator = ScriptedGenerator([_draft(too_many)])
     workflow = build_slide_workflow(generator)
 
     slide, issues = await run_slide_workflow(workflow, _payload(), uuid.uuid4())
@@ -74,7 +78,10 @@ async def test_workflow_skips_repair_for_capacity_overflow() -> None:
     assert len(generator.prompts) == 1
     assert generator.prompts[0] == []
     assert any(issue.code == "capacity" for issue in issues)
-    assert slide.blocks[1].items == too_long
+    assert not any(
+        issue.severity == "error" and issue.code == "canvas_overflow" for issue in issues
+    )
+    assert slide.blocks[1].items == too_many
 
 
 @pytest.mark.asyncio

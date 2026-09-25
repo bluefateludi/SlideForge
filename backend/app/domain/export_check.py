@@ -11,7 +11,7 @@ from collections.abc import Callable, Mapping
 
 from pydantic import BaseModel, Field
 
-from app.domain.content import Deck, ImageBlock
+from app.domain.content import Deck, ImageBlock, Slide
 from app.domain.geometry import CANVAS_HEIGHT_PT, CANVAS_WIDTH_PT, Rect
 from app.domain.layout import get_layout
 from app.domain.quality import check_deck_content_quality
@@ -212,6 +212,64 @@ def check_images(
     return issues
 
 
+CANVAS_OVERFLOW_CODE = "canvas_overflow"
+
+
+def canvas_overflow_issues_for_slide(slide: Slide, *, theme: Theme) -> list[StructureIssue]:
+    """单页版画布底边检查：块渲染后必然越出画布 → error（code=canvas_overflow）。
+
+    生成期（validate_slide）与导出期共用这一条规则，保证两端口径一致；
+    文字溢出槽位本身仍由 validate 的 warning 负责。
+    """
+    from app.domain.text_metrics import measure_bullets, measure_text
+
+    issues: list[StructureIssue] = []
+    try:
+        placements = placed_by_block_id(slide)
+    except KeyError:
+        return issues
+    for block in slide.blocks:
+        placed = placements.get(block.id)
+        if placed is None:
+            continue
+        _x, y_pt, w_pt, h_pt = placed.rect.to_points()
+        used_height: float | None = None
+
+        if block.type in {"text", "bullets"}:
+            from app.domain.block_style import (
+                content_rect_pt,
+                merge_text_style,
+                resolve_box,
+            )
+
+            box = resolve_box(theme, block.style)
+            avail_w, avail_h = content_rect_pt(w_pt, h_pt, padding_pt=box.padding_pt)
+            default_style = "body" if block.type == "text" else "bullet"
+            style = merge_text_style(theme, placed.text_style or default_style, block.style)
+            if block.type == "text":
+                used_height = measure_text(
+                    block.text, style=style, width_pt=avail_w, height_pt=avail_h
+                ).height_pt
+            else:
+                used_height = measure_bullets(
+                    block.items, style=style, width_pt=avail_w, height_pt=avail_h
+                ).height_pt
+
+        if used_height is None:
+            continue
+        if y_pt + used_height > CANVAS_HEIGHT_PT + 0.5:
+            issues.append(
+                StructureIssue(
+                    severity="error",
+                    slide_id=slide.id,
+                    slot_id=block.slot_id or block.id,
+                    message="内容渲染后将超出页面底边，请缩短文字或调整布局",
+                    code=CANVAS_OVERFLOW_CODE,
+                )
+            )
+    return issues
+
+
 def check_content_overflows_canvas(
     deck: Deck, *, theme: Theme | None = None
 ) -> list[StructureIssue]:
@@ -220,58 +278,17 @@ def check_content_overflows_canvas(
     文字溢出槽位本身是 warning（由 validate 负责）；
     仅当「槽位顶边 + 实际占用高度」超出画布时升级为 error。
     """
-    from app.domain.text_metrics import measure_bullets, measure_text
-
     try:
         resolved = theme or get_theme(deck.theme_id)
     except KeyError:
         return []
     theme = resolved
 
-    issues: list[StructureIssue] = []
-    for slide in deck.slides:
-        try:
-            placements = placed_by_block_id(slide)
-        except KeyError:
-            continue
-        for block in slide.blocks:
-            placed = placements.get(block.id)
-            if placed is None:
-                continue
-            _x, y_pt, w_pt, h_pt = placed.rect.to_points()
-            used_height: float | None = None
-
-            if block.type == "text":
-                from app.domain.block_style import content_rect_pt, merge_text_style, resolve_box
-
-                box = resolve_box(theme, block.style)
-                avail_w, avail_h = content_rect_pt(w_pt, h_pt, padding_pt=box.padding_pt)
-                style = merge_text_style(theme, placed.text_style or "body", block.style)
-                used_height = measure_text(
-                    block.text, style=style, width_pt=avail_w, height_pt=avail_h
-                ).height_pt
-            elif block.type == "bullets":
-                from app.domain.block_style import content_rect_pt, merge_text_style, resolve_box
-
-                box = resolve_box(theme, block.style)
-                avail_w, avail_h = content_rect_pt(w_pt, h_pt, padding_pt=box.padding_pt)
-                style = merge_text_style(theme, placed.text_style or "bullet", block.style)
-                used_height = measure_bullets(
-                    block.items, style=style, width_pt=avail_w, height_pt=avail_h
-                ).height_pt
-
-            if used_height is None:
-                continue
-            if y_pt + used_height > CANVAS_HEIGHT_PT + 0.5:
-                issues.append(
-                    StructureIssue(
-                        severity="error",
-                        slide_id=slide.id,
-                        slot_id=block.slot_id or block.id,
-                        message="内容渲染后将超出页面底边，请缩短文字或调整布局",
-                    )
-                )
-    return issues
+    return [
+        issue
+        for slide in deck.slides
+        for issue in canvas_overflow_issues_for_slide(slide, theme=theme)
+    ]
 
 
 def check_font_metrics_availability() -> list[StructureIssue]:
