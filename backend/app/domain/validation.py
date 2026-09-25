@@ -146,9 +146,7 @@ def _overflow_issues(
     ]
 
 
-def _validate_fixed_slide(
-    slide: Slide, *, theme: Theme
-) -> list[StructureIssue]:
+def _validate_fixed_slide(slide: Slide, *, theme: Theme) -> list[StructureIssue]:
     try:
         layout = get_layout(slide.layout_id)
     except KeyError as error:
@@ -304,8 +302,16 @@ def validate_slide(
         ]
 
     if slide.layout_mode == "flex":
-        return _validate_flex_slide(slide, theme=resolved_theme)
-    return _validate_fixed_slide(slide, theme=resolved_theme)
+        issues = _validate_flex_slide(slide, theme=resolved_theme)
+    else:
+        issues = _validate_fixed_slide(slide, theme=resolved_theme)
+
+    # 生成期与导出期同一条画布底边规则（fixed/flex 都查）：越界必须在这里
+    # 就是 error，否则自纠回路看不见，导出期才暴露（issue #22 的断裂根源）
+    from app.domain.export_check import canvas_overflow_issues_for_slide
+
+    issues.extend(canvas_overflow_issues_for_slide(slide, theme=resolved_theme))
+    return issues
 
 
 def validate_deck(deck: Deck, *, theme: Theme | None = None) -> list[StructureIssue]:
