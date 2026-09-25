@@ -84,8 +84,10 @@ async def test_workflow_repairs_capacity_overflow_once() -> None:
 
 @pytest.mark.asyncio
 async def test_workflow_keeps_warnings_after_one_repair() -> None:
-    too_long = ["超出容量的要点" * 12] * 9
-    generator = ScriptedEditGenerator([[BulletsPatch(block_id="b1", items=too_long)]])
+    # 超条数触发 capacity warning；避开超长文本——那会额外触发
+    # 画布底边越界 error（#22 方向 A），属于应被拦截的非法结果
+    too_many = [f"第 {i} 条要点：包含足够信息量的一条中等长度说明文字" for i in range(1, 10)]
+    generator = ScriptedEditGenerator([[BulletsPatch(block_id="b1", items=too_many)]])
     workflow = build_slide_edit_workflow(generator)
 
     _, _, issues, _ = await run_slide_edit_workflow(
