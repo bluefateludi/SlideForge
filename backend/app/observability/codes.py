@@ -19,3 +19,6 @@ LLM_SCHEMA_ERROR = "llm_schema_error"  # with_structured_output 解析/校验失
 LLM_TIMEOUT = "llm_timeout"  # 供应商/SDK 超时（APITimeoutError 等）
 RENDER_ERROR = "render_error"  # PPTX 渲染异常
 VERIFY_ERROR = "verify_error"  # 导出回读验证异常
+
+# --- obs#5 新增（图片降级链） ---
+IMAGE_GEN_ERROR = "image_gen_error"  # AI 生图级未产出图（异常或空响应），降级到下一级
