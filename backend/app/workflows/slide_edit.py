@@ -18,6 +18,7 @@ from app.domain.theme import resolve_theme
 from app.domain.validation import StructureIssue, has_blocking_issue, validate_slide
 from app.llm.base import EditOperation, SlideEditGenerator, SlideEditInput, SlideEditResult
 from app.llm.errors import InvalidSlideEditOutputError
+from app.observability.recorder import traced_node
 
 MAX_REPAIR_ROUNDS = 1
 
@@ -110,10 +111,15 @@ def build_slide_edit_workflow(generator: SlideEditGenerator):
             return END
         return "repair"
 
+    def _repair_attributes(state: SlideEditWorkflowState) -> dict:
+        # 与 slide 工作流同口径：记录即将开始的修复轮次，拿不到就整个省略
+        rounds = state.get("repairs")
+        return {"repair_round": rounds + 1} if isinstance(rounds, int) else {}
+
     graph = StateGraph(SlideEditWorkflowState)
-    graph.add_node("generate", generate)
-    graph.add_node("check", check)
-    graph.add_node("repair", repair)
+    graph.add_node("generate", traced_node("ai_edit.generate")(generate))
+    graph.add_node("check", traced_node("ai_edit.check")(check))
+    graph.add_node("repair", traced_node("ai_edit.repair", attributes=_repair_attributes)(repair))
     graph.add_edge(START, "generate")
     graph.add_edge("generate", "check")
     graph.add_conditional_edges("check", route, {"repair": "repair", END: END})

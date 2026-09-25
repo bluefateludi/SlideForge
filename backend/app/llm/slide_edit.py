@@ -24,10 +24,17 @@ from app.llm.base import (
     SlideEditInput,
     SlideEditResult,
 )
+from app.llm.client import _extract_usage, _is_timeout, _model_name
 from app.llm.edit_tools import EditSession, block_preview, build_edit_tools, sketch_tree
 from app.llm.errors import LLMNotConfiguredError
+from app.observability import codes
+from app.observability.recorder import finish_span, start_span
 
 MAX_TOOL_ROUNDS = 4
+
+# 工具循环不走 StructuredChatClient（bind_tools 直调），llm span 就地补齐，
+# 口径与 client.py 咽喉点一致；无 trace 上下文时零开销。
+LLM_PURPOSE = "局部修改页面"
 
 
 class DeepSeekSlideEditGenerator:
@@ -69,7 +76,26 @@ class DeepSeekSlideEditGenerator:
         messages.append(HumanMessage(content=self._user_prompt(payload, layout, session)))
 
         for _ in range(MAX_TOOL_ROUNDS):
-            response = await bound.ainvoke(messages)
+            llm_span = await start_span("llm", "llm", attributes={"purpose": LLM_PURPOSE})
+            try:
+                response = await bound.ainvoke(messages)
+            except Exception as error:
+                await finish_span(
+                    llm_span,
+                    "failed",
+                    error_code=codes.LLM_TIMEOUT if _is_timeout(error) else codes.LLM_ERROR,
+                    error_message=str(error) or error.__class__.__name__,
+                )
+                raise
+            prompt_tokens, completion_tokens = _extract_usage(response)
+            await finish_span(
+                llm_span,
+                "succeeded",
+                model=_model_name(self._model),
+                purpose=LLM_PURPOSE,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
             messages.append(response)
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
