@@ -1,0 +1,13 @@
+# 从仓库预配 dashboard：文件提供器扫描本目录下的 *.json。
+apiVersion: 1
+
+providers:
+  - name: slideforge
+    folder: SlideForge
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

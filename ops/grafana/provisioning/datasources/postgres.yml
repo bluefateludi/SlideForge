@@ -1,0 +1,21 @@
+# Grafana 数据源：指向 compose 内的 postgres 服务（只读账号 grafana_ro）。
+# 口径说明：面板 SQL 与后端 /api/v1/trace/metrics/summary 保持一致
+#（窗口键 traces.created_at，spans 经 trace_id 关联进窗口）。
+apiVersion: 1
+
+datasources:
+  - name: SlideForge Postgres
+    uid: slideforge-postgres
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: grafana_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: aippt
+      sslmode: disable
+      postgresVersion: 1600
+      timescale: false
+    secureJsonData:
+      password: grafana_ro
