@@ -1,4 +1,4 @@
-.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval
+.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval eval-gate eval-baseline
 
 up:
 	docker compose up -d
@@ -50,6 +50,16 @@ regression:
 # 需先 make dev（API/worker）与 docker 栈在跑；API 基址等见 scripts/run_eval.py 头注。
 eval:
 	cd backend && uv run python scripts/run_eval.py
+
+# 回归门禁（eval#6）：eval 跑完再对比 backend/eval/baseline.json，
+# 指标超容差退出码 1（成功率/Schema 率零容差；token/cost/P95 ×1.3）。
+eval-gate:
+	cd backend && uv run python scripts/run_eval.py --gate
+
+# 重立基线（零模型调用）：取库里最近一次同题集版本的 run 写 baseline.json。
+# 题集变更、单价配置、修完 #22/#32 这类影响指标的改动后都应重立。
+eval-baseline:
+	cd backend && uv run python scripts/run_eval.py --baseline-from-db
 
 lint:
 	cd backend && uv run ruff check .

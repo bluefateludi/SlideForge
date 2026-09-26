@@ -2,23 +2,33 @@
 """评测入口：make eval → 逐题驱动真实服务并输出整份报告（eval#3）。
 
 用法（仓库根目录）：
-  make eval
+  make eval               全量评测（报告 + 入库）
+  make eval-gate          跑完后再做回归门禁：指标对比 baseline.json，
+                          超容差退出码 1（eval#6）
+  make eval-baseline      不跑评测，从库里最近一次同题集版本的 run
+                          重立基线（零模型调用）；跑完一轮后用
+                          `uv run python scripts/run_eval.py --baseline`
+                          可直接以本轮结果立基线
 环境变量：
   EVAL_API_BASE   API 基址（默认 http://127.0.0.1:39800/api/v1）
   EVAL_OUTLINE_TIMEOUT_SECONDS / EVAL_SLIDE_TIMEOUT_SECONDS /
   EVAL_EXPORT_TIMEOUT_SECONDS / EVAL_POLL_INTERVAL_SECONDS   各阶段超时
   EVAL_NOTE        本次 run 的备注（写入 eval_runs.note）
   EVAL_SKIP_DB     非空时跳过入库（报告只打印，行为退回 eval#3）
+  EVAL_GATE        非空时等价 --gate（Makefile 目标的底层开关）
 
-真实全量评测由维护者本地发起；本脚本不设指标门禁，退出码只在
-环境性错误（连不上 API / 认证失败）时非零。跑完报告后直连数据库
-写入 eval_runs（async_session_factory）：脚本本就在后端代码库内、
-与 API 共用一套模型与迁移，经 API 中转只多一层认证与校验，无收益。
+退出码：0 正常；1 门禁未通过 / 未立基线 / 基线操作失败；2 环境性错误。
+门禁口径见 app/eval/gate.py：成功率/Schema 率/导出零容差，judge 容差
+-0.5，token/cost/P95 上限 ×1.3；cases_version 不一致拒绝对比。
+真实全量评测由维护者本地发起。跑完报告后直连数据库写入 eval_runs
+（async_session_factory）：脚本本就在后端代码库内、与 API 共用一套模型
+与迁移，经 API 中转只多一层认证与校验，无收益。
 报告先打印再写库，写库失败给出明确中文错误且不吞掉已输出的报告。
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
@@ -34,6 +44,15 @@ import httpx  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.eval.cases import load_cases, pick_smoke_case  # noqa: E402
 from app.eval.evaluator import DeckJudge  # noqa: E402
+from app.eval.gate import (  # noqa: E402
+    BASELINE_PATH,
+    compare_with_baseline,
+    format_gate_report,
+    latest_run_metrics,
+    load_baseline,
+    write_baseline,
+    write_baseline_from_metrics,
+)
 from app.eval.persistence import (  # noqa: E402
     compute_cases_version,
     join_report_traces,
@@ -114,7 +133,7 @@ async def _run_with_smoke(runner, cases):
     return [by_id[case.id] for case in cases]
 
 
-async def _main() -> int:
+async def _main(*, gate: bool = False, baseline: bool = False) -> int:
     api_base = os.environ.get("EVAL_API_BASE", DEFAULT_API_BASE).rstrip("/")
     base = api_base if api_base.endswith("/api/v1") else _with_v1(api_base)
     cases = load_cases()
@@ -156,6 +175,58 @@ async def _main() -> int:
             )
     sys.stdout.write(format_report(report))
     await _persist_report(report, cases, traces_joined=joined)
+    cases_version = compute_cases_version(cases)
+
+    if baseline:
+        if os.environ.get("EVAL_SKIP_DB", "").strip():
+            print("[baseline] EVAL_SKIP_DB 下指标未 join trace，拒绝立基线", file=sys.stderr)
+            return 1
+        write_baseline(BASELINE_PATH, report, cases_version=cases_version)
+        print(
+            f"[baseline] 已写入 {BASELINE_PATH}（cases_version={cases_version}）",
+            file=sys.stderr,
+        )
+
+    if gate:
+        return _run_gate(report, cases_version=cases_version)
+    return 0
+
+
+def _run_gate(report, *, cases_version: str) -> int:
+    """门禁：对比 baseline.json，打印报告并给退出码（eval#6）。"""
+    baseline_data = load_baseline(BASELINE_PATH)
+    if baseline_data is None:
+        print(
+            f"[gate] 未找到合法基线（{BASELINE_PATH}）：先跑一轮评测后"
+            " `uv run python scripts/run_eval.py --baseline`，或 make eval-baseline 从库里取",
+            file=sys.stderr,
+        )
+        return 1
+    gate_report = compare_with_baseline(report, cases_version=cases_version, baseline=baseline_data)
+    sys.stdout.write(format_gate_report(gate_report))
+    return 0 if gate_report.passed else 1
+
+
+async def _baseline_from_db() -> int:
+    """零模型调用：从库里最近一次同题集版本的 run 重立基线。"""
+    cases = load_cases()
+    cases_version = compute_cases_version(cases)
+    from app.core.db import async_session_factory
+
+    async with async_session_factory() as session:
+        found = await latest_run_metrics(session, cases_version=cases_version)
+    if found is None:
+        print(
+            f"[baseline] 库里没有 cases_version={cases_version} 的 run，"
+            "先跑一轮 make eval 再立基线",
+            file=sys.stderr,
+        )
+        return 1
+    run_id, metrics = found
+    write_baseline_from_metrics(
+        BASELINE_PATH, cases_version=cases_version, metrics=metrics, source=f"eval_runs:{run_id}"
+    )
+    print(f"[baseline] 已写入 {BASELINE_PATH}（取自 run {run_id}）", file=sys.stderr)
     return 0
 
 
@@ -198,8 +269,24 @@ def _with_v1(api_base: str) -> str:
     return parsed if parsed.endswith("/v1") else parsed + "/api/v1"
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="SlideForge 评测入口（口径见模块 docstring）")
+    parser.add_argument("--gate", action="store_true", help="跑完后做回归门禁（等价 EVAL_GATE=1）")
+    parser.add_argument("--baseline", action="store_true", help="以本轮结果重立基线 baseline.json")
+    parser.add_argument(
+        "--baseline-from-db",
+        action="store_true",
+        help="不跑评测：从库里最近一次同题集版本的 run 立基线（零模型调用）",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
-    return asyncio.run(_main())
+    args = _parse_args()
+    if args.baseline_from_db:
+        return asyncio.run(_baseline_from_db())
+    gate = args.gate or bool(os.environ.get("EVAL_GATE", "").strip())
+    return asyncio.run(_main(gate=gate, baseline=args.baseline))
 
 
 if __name__ == "__main__":
