@@ -14,7 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from app.eval.cases import CASES_DIR, CATEGORIES, EvalCase, load_cases, pick_smoke_case
+from app.eval.cases import (
+    CASES_DIR,
+    CATEGORIES,
+    EvalCase,
+    filter_cases,
+    load_cases,
+    pick_smoke_case,
+)
 
 
 def _write_case(
@@ -239,3 +246,36 @@ def test_pick_smoke_case_none_when_no_topic_case() -> None:
         source="q3.md",
     )
     assert pick_smoke_case([doc]) is None
+
+
+# --- filter_cases（run_eval --cases，#32 成本约束）---
+
+
+def _mini(id_: str) -> EvalCase:
+    return EvalCase(
+        id=id_,
+        input=f"生成 {id_} 的 8 页 PPT",
+        expected_pages=8,
+        requirements=["包含测试要求"],
+        category=id_.split("/")[0],
+    )
+
+
+def test_filter_cases_returns_subset_in_original_order() -> None:
+    cases = [_mini("education/a"), _mini("education/b"), _mini("documents/c")]
+
+    picked = filter_cases(cases, "documents/c, education/a")
+
+    assert [case.id for case in picked] == ["education/a", "documents/c"]
+
+
+def test_filter_cases_rejects_unknown_id_with_valid_list() -> None:
+    cases = [_mini("education/a"), _mini("documents/c")]
+
+    with pytest.raises(ValueError, match="education/typo.*documents/c.*education/a"):
+        filter_cases(cases, "education/typo")
+
+
+def test_filter_cases_rejects_empty_spec() -> None:
+    with pytest.raises(ValueError, match="为空"):
+        filter_cases([_mini("education/a")], " , ")

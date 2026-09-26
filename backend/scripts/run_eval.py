@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import sys
@@ -32,7 +33,7 @@ if str(BACKEND_ROOT) not in sys.path:
 import httpx  # noqa: E402
 
 from app.core.config import get_settings  # noqa: E402
-from app.eval.cases import load_cases, pick_smoke_case  # noqa: E402
+from app.eval.cases import filter_cases, load_cases, pick_smoke_case  # noqa: E402
 from app.eval.evaluator import DeckJudge  # noqa: E402
 from app.eval.persistence import (  # noqa: E402
     compute_cases_version,
@@ -114,10 +115,23 @@ async def _run_with_smoke(runner, cases):
     return [by_id[case.id] for case in cases]
 
 
-async def _main() -> int:
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="固定题集评测：HTTP 驱动本地 dev 栈跑主流程")
+    parser.add_argument(
+        "--cases",
+        default="",
+        help="逗号分隔的题号子集（如 education/python_basics,documents/ev_market）；缺省全量",
+    )
+    return parser.parse_args(argv)
+
+
+async def _main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     api_base = os.environ.get("EVAL_API_BASE", DEFAULT_API_BASE).rstrip("/")
     base = api_base if api_base.endswith("/api/v1") else _with_v1(api_base)
     cases = load_cases()
+    if args.cases:
+        cases = filter_cases(cases, args.cases)
     print(f"[eval] 题集 {len(cases)} 题，API：{base}", file=sys.stderr)
 
     judge = _build_judge()

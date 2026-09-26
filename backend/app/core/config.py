@@ -38,8 +38,9 @@ class Settings(BaseSettings):
 
     # AI 生图与图库各自独立配置：两者是互相降级的关系，
     # 只配一个也要能正常工作，因此不共用 LLM 的凭证。
-    # openai = OpenAI 兼容 /images/generations；bailian = 百炼 DashScope 原生接口
-    image_provider: Literal["openai", "bailian"] = "openai"
+    # openai = OpenAI 兼容 /images/generations；bailian = 百炼 DashScope 原生接口；
+    # unsplash = 省钱档：跳过付费生图只用免费图库，开发/评测用（#32 成本约束）
+    image_provider: Literal["openai", "bailian", "unsplash"] = "openai"
     image_api_key: str = ""
     image_base_url: str = "https://api.openai.com/v1"
     image_model: str = "gpt-image-1"

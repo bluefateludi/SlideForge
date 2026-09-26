@@ -96,6 +96,25 @@ def _display(path: Path, root: Path) -> str:
     return path.relative_to(root).as_posix()
 
 
+def filter_cases(cases: list[EvalCase], spec: str) -> list[EvalCase]:
+    """按逗号分隔的题号子集过滤（run_eval --cases，#32 成本约束）。
+
+    任一题号不在题集中直接抛 ValueError 并列出全部合法题号——拼写错误
+    应当当场报错，而不是静默跑空或跑偏。保持原题集顺序，与全量口径一致。
+    """
+    wanted = [part.strip() for part in spec.split(",") if part.strip()]
+    if not wanted:
+        raise ValueError("--cases 为空：请给出逗号分隔的题号，或去掉该参数跑全量")
+    known = {case.id for case in cases}
+    unknown = [case_id for case_id in wanted if case_id not in known]
+    if unknown:
+        raise ValueError(
+            f"未知题号：{', '.join(unknown)}；合法题号：{', '.join(sorted(known))}"
+        )
+    picked = set(wanted)
+    return [case for case in cases if case.id in picked]
+
+
 def pick_smoke_case(cases: list[EvalCase]) -> EvalCase | None:
     """全量评测前的冒烟题：主题题里挑页数最少的（不传材料、链路最短）。
 

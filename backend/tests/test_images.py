@@ -711,3 +711,23 @@ def test_pptx_export_embeds_real_picture() -> None:
     picture = pictures[0]
     assert picture.crop_left > 0
     assert picture.crop_right > 0
+
+
+def test_create_image_pipeline_unsplash_mode_skips_paid_generation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """IMAGE_PROVIDER=unsplash：跳过付费生图主源，仅保留免费图库（#32 成本约束）。"""
+    from app.images.pipeline import create_image_pipeline
+    from app.images.unsplash import UnsplashImageProvider
+
+    monkeypatch.setenv("IMAGE_PROVIDER", "unsplash")
+    # get_settings 带 lru_cache：先清掉先前测试留下的实例，用完再清，
+    # 避免本测试的临时环境泄进后面的用例
+    get_settings.cache_clear()
+    try:
+        pipeline = create_image_pipeline(httpx.AsyncClient())
+    finally:
+        get_settings.cache_clear()
+    providers = pipeline._providers
+    assert len(providers) == 1
+    assert isinstance(providers[0], UnsplashImageProvider)
