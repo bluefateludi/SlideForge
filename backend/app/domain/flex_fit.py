@@ -80,10 +80,7 @@ def fit_tree_to_canvas(
     三处看到的是同一个更小的字。标题类样式是页面家具，不参与收缩。
     """
     fitted = fit_tree_to_content(tree, blocks, theme=theme, page_role=page_role)
-    if (
-        _root_natural_height_pt(fitted, blocks, theme)
-        <= SAFE_AREA_HEIGHT_PT + _CANVAS_FIT_TOLERANCE_PT
-    ):
+    if _fits_canvas(fitted, blocks, theme):
         return fitted, list(blocks)
 
     best_tree, best_blocks = fitted, list(blocks)
@@ -91,12 +88,15 @@ def fit_tree_to_canvas(
         shrunk = _stamp_body_font_scale(tree, blocks, theme, scale)
         refitted = fit_tree_to_content(tree, shrunk, theme=theme, page_role=page_role)
         best_tree, best_blocks = refitted, shrunk
-        if (
-            _root_natural_height_pt(refitted, shrunk, theme)
-            <= SAFE_AREA_HEIGHT_PT + _CANVAS_FIT_TOLERANCE_PT
-        ):
+        if _fits_canvas(refitted, shrunk, theme):
             break
     return best_tree, best_blocks
+
+
+def _fits_canvas(tree: FlexContainer, blocks: list[Block], theme: Theme) -> bool:
+    """根列自然高度是否装得进安全区；B 的闸门，比 A 的底边检查更保守。"""
+    limit = SAFE_AREA_HEIGHT_PT + _CANVAS_FIT_TOLERANCE_PT
+    return _root_natural_height_pt(tree, blocks, theme) <= limit
 
 
 def _root_natural_height_pt(tree: FlexContainer, blocks: list[Block], theme: Theme) -> float:
