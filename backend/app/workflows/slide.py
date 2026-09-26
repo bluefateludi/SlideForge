@@ -6,7 +6,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from app.domain.content import Slide
-from app.domain.flex_fit import fit_tree_to_content
+from app.domain.flex_fit import fit_tree_to_canvas
 from app.domain.flex_width import fit_row_widths
 from app.domain.quality import check_slide_richness, is_repair_worthy
 from app.domain.slide_draft import FlexSlideDraft, SlideDraft, draft_to_slide, flex_draft_to_slide
@@ -94,17 +94,18 @@ def build_slide_workflow(generator: SlideGenerator):
         payload = state["input"]
         # 生成期先定列宽再定行高：宽度决定折行，折行决定自然高度。
         # 两步都放在校验之前，让溢出/容量告警反映的是最终版面。
+        # 画布高约束（#32 方案 B）包在行高之后：越界时先收缩字号重排，
+        # 收缩到底仍越界才轮到 validate 的 canvas_overflow 触发修复轮。
         if slide.layout_mode == "flex" and slide.layout_tree is not None:
             widened = fit_row_widths(slide.layout_tree, slide.blocks, theme=theme)
+            layout_tree, blocks = fit_tree_to_canvas(
+                widened,
+                slide.blocks,
+                theme=theme,
+                page_role=payload.page_role,
+            )
             slide = slide.model_copy(
-                update={
-                    "layout_tree": fit_tree_to_content(
-                        widened,
-                        slide.blocks,
-                        theme=theme,
-                        page_role=payload.page_role,
-                    )
-                }
+                update={"layout_tree": layout_tree, "blocks": blocks}
             )
         issues = validate_slide(slide, theme=theme)
         issues.extend(

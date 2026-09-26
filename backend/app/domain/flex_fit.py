@@ -10,7 +10,7 @@ solver 只按权重瓜分画布、不读字体度量，所以预设里写死的 
 
 from __future__ import annotations
 
-from app.domain.block_style import content_rect_pt, merge_text_style, resolve_box
+from app.domain.block_style import BlockStyle, content_rect_pt, merge_text_style, resolve_box
 from app.domain.content import Block
 from app.domain.flex_layout import FlexContainer, FlexLeaf, FlexNode, is_spacer
 from app.domain.flex_normalize import GROW_MAX, GROW_MIN, TITLE_STYLES, normalize
@@ -56,6 +56,85 @@ _MAX_SPACER_RATIO = 0.16
 # 让标题落在视觉中线偏上，与固定布局 cover.json 的观感一致
 _CENTERED_ROLES = frozenset({"cover", "section"})
 _LEAD_SPACER_RATIO = 0.38
+
+# 画布高约束（#32 方案 B）：正文逐档收缩的字号比例，到底仍越界交给修复轮
+_FONT_SHRINK_SCALES: tuple[float, ...] = (0.9, 0.82, 0.74, 0.66, 0.6)
+_CANVAS_FIT_TOLERANCE_PT = 1.0
+
+
+def fit_tree_to_canvas(
+    tree: FlexContainer,
+    blocks: list[Block],
+    *,
+    theme: Theme,
+    page_role: str | None = None,
+) -> tuple[FlexContainer, list[Block]]:
+    """画布高约束（#32 方案 B）：内容自然高度越出画布时收缩正文字号重排。
+
+    fit_tree_to_content 对 surplus<0 不设防，后续行会被原样推出画布底边。
+    这里在其外再包一层：逐档下调正文（text/bullets）字号并重跑排版，首个
+    装得下的档位生效；全档收缩仍越界则按最小档尽力返回，把剩余越界留给
+    #22 方向 A 的修复循环兜底——B 让越界少发生，A 负责兜住剩下的。
+
+    字号覆盖写入 block.style.size_pt，校验/画布检查/渲染共用同一 merge，
+    三处看到的是同一个更小的字。标题类样式是页面家具，不参与收缩。
+    """
+    fitted = fit_tree_to_content(tree, blocks, theme=theme, page_role=page_role)
+    if (
+        _root_natural_height_pt(fitted, blocks, theme)
+        <= SAFE_AREA_HEIGHT_PT + _CANVAS_FIT_TOLERANCE_PT
+    ):
+        return fitted, list(blocks)
+
+    best_tree, best_blocks = fitted, list(blocks)
+    for scale in _FONT_SHRINK_SCALES:
+        shrunk = _stamp_body_font_scale(tree, blocks, theme, scale)
+        refitted = fit_tree_to_content(tree, shrunk, theme=theme, page_role=page_role)
+        best_tree, best_blocks = refitted, shrunk
+        if (
+            _root_natural_height_pt(refitted, shrunk, theme)
+            <= SAFE_AREA_HEIGHT_PT + _CANVAS_FIT_TOLERANCE_PT
+        ):
+            break
+    return best_tree, best_blocks
+
+
+def _root_natural_height_pt(tree: FlexContainer, blocks: list[Block], theme: Theme) -> float:
+    widths_pt = {
+        placed.block_id: placed.rect.w * CANVAS_WIDTH_PT for placed in solve(tree)
+    }
+    ctx = _FitContext(
+        block_map={block.id: block for block in blocks},
+        widths_pt=widths_pt,
+        theme=theme,
+    )
+    return _natural_height_pt(tree, ctx)
+
+
+def _stamp_body_font_scale(
+    tree: FlexContainer,
+    blocks: list[Block],
+    theme: Theme,
+    scale: float,
+) -> list[Block]:
+    """按比例把正文字号写进 style.size_pt 覆盖；标题类与非文本块不动。
+
+    基准取该块当前生效字号（含 LLM 已写的覆盖），每档都从原始块绝对换算，
+    不在上一档基础上叠乘。
+    """
+    leaf_styles = {placed.block_id: placed.text_style for placed in solve(tree)}
+    stamped: list[Block] = []
+    for block in blocks:
+        leaf_style = leaf_styles.get(block.id)
+        if block.type not in {"text", "bullets"} or leaf_style in TITLE_STYLES:
+            stamped.append(block)
+            continue
+        default = "bullet" if block.type == "bullets" else "body"
+        base = merge_text_style(theme, leaf_style or default, block.style).size_pt
+        size_pt = max(8.0, round(base * scale, 1))
+        override = (block.style or BlockStyle()).model_copy(update={"size_pt": size_pt})
+        stamped.append(block.model_copy(update={"style": override}))
+    return stamped
 
 
 def fit_tree_to_content(
