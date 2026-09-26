@@ -14,7 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 TraceStatus = Literal["running", "succeeded", "failed", "cancelled"]
-SpanKind = Literal["task", "node", "llm", "export"]
+SpanKind = Literal["task", "node", "llm", "export", "image"]
 SpanStatus = Literal["running", "succeeded", "failed"]
 
 
@@ -74,6 +74,21 @@ class TraceDetail(BaseModel):
 
     trace: TracePublic
     spans: list[SpanPublic]
+    # 成本估算（obs#9）：由 spans 的 llm token 与 image.ai 张数按 env 单价
+    # 折算；单价未配置时 configured=False，前端不展示成本卡
+    cost: TraceCostSummary
+
+
+class TraceCostSummary(BaseModel):
+    """单条 trace 的成本估算（人民币元，展示精度 4 位小数）。"""
+
+    configured: bool = Field(description="任一单价已配置即为 true")
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    ai_image_count: int = Field(default=0, description="计费张数：image.ai 且 succeeded")
+    llm_cost: float = 0.0
+    image_cost: float = 0.0
+    total_cost: float = 0.0
 
 
 class KindSuccessRate(BaseModel):
@@ -139,6 +154,7 @@ __all__ = [
     "KindSuccessRate",
     "NodeStatItem",
     "SpanPublic",
+    "TraceCostSummary",
     "TraceDetail",
     "TraceMetricsSummary",
     "TracePage",

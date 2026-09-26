@@ -198,3 +198,27 @@ async def test_save_run_persists_and_reads_back() -> None:
         finally:
             await session.execute(delete(EvalRun).where(EvalRun.id == run.id))
             await session.commit()
+
+
+class TestCostPersistence:
+    """obs#9：cost 进 run 聚合列与明细 JSONB 白名单。"""
+
+    def test_report_to_run_maps_cost_columns_and_detail_keys(self) -> None:
+        from app.eval.report import CaseRow, EvalReport, RunSummary
+
+        row_ok = CaseRow(
+            case_id="technology/rag", ok=True, stage="done", ai_image_count=2, cost=0.3
+        )
+        row_failed = CaseRow(
+            case_id="technology/agent", ok=False, stage="deck_wait", error="x", cost=0.1
+        )
+        report = EvalReport(
+            summary=RunSummary(total_cases=2, ok_cases=1, avg_cost=0.3, total_cost=0.4),
+            rows=[row_ok, row_failed],
+        )
+        run = report_to_run(report, cases_version="cost-1")
+        assert run.avg_cost == 0.3
+        assert run.total_cost == 0.4
+        assert run.rows[0]["ai_image_count"] == 2
+        assert run.rows[0]["cost"] == 0.3
+        assert run.rows[1]["cost"] == 0.1

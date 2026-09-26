@@ -518,3 +518,87 @@ async def test_openapi_exposes_trace_schemas() -> None:
         "NodeStatItem",
     ]:
         assert name in schema["components"]["schemas"]
+
+
+@pytest.mark.asyncio
+async def test_trace_detail_serializes_image_spans_and_cost(
+    client: AsyncClient, project_id: uuid.UUID, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """obs#9：image span 可序列化（SpanKind 补 image 的回归）+ 详情成本折算。
+
+    单价经 monkeypatch 注入：compute_cost 内部读 app.observability.cost
+    的 get_settings，替换为确定值，避免依赖运行环境的 env 配置。
+    """
+    from app.core.config import Settings
+    from app.core.db import async_session_factory
+
+    prices = Settings(
+        llm_price_per_mtok_prompt=2.0,
+        llm_price_per_mtok_completion=8.0,
+        image_price_per_unit=0.1,
+    )
+    monkeypatch.setattr("app.observability.cost.get_settings", lambda: prices)
+
+    async with async_session_factory() as session:
+        trace_id = uuid.uuid4()
+        session.add(
+            Trace(id=trace_id, kind="deck", status="succeeded", project_id=project_id)
+        )
+        await session.flush()
+        spans = [
+            Span(
+                trace_id=trace_id,
+                name="llm",
+                span_kind="llm",
+                status="succeeded",
+                prompt_tokens=1_000_000,
+                completion_tokens=250_000,
+                duration_ms=5000,
+            ),
+            Span(
+                trace_id=trace_id,
+                name="image.ai",
+                span_kind="image",
+                status="succeeded",
+                duration_ms=3000,
+            ),
+            Span(
+                trace_id=trace_id,
+                name="image.ai",
+                span_kind="image",
+                status="failed",
+                error_code="image_gen_error",
+                duration_ms=1000,
+            ),
+            Span(
+                trace_id=trace_id,
+                name="image.unsplash",
+                span_kind="image",
+                status="succeeded",
+                duration_ms=800,
+            ),
+        ]
+        session.add_all(spans)
+        await session.commit()
+
+    headers = await _sign_up(client)
+    response = await client.get(f"/api/v1/trace/{trace_id}", headers=headers)
+    assert response.status_code == 200
+    body = response.json()
+
+    # 回归：image span 在 Literal 补齐前会让详情序列化直接 500
+    kinds = [span["span_kind"] for span in body["spans"]]
+    assert kinds.count("image") == 3
+
+    cost = body["cost"]
+    assert cost["configured"] is True
+    assert cost["prompt_tokens"] == 1_000_000
+    assert cost["completion_tokens"] == 250_000
+    assert cost["ai_image_count"] == 1
+    assert cost["llm_cost"] == 4.0  # 1M×2/M + 0.25M×8/M
+    assert cost["image_cost"] == 0.1
+    assert cost["total_cost"] == 4.1
+
+    async with async_session_factory() as session:
+        await session.execute(delete(Trace).where(Trace.id == trace_id))
+        await session.commit()

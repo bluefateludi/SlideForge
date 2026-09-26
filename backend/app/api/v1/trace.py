@@ -19,12 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.models.user import User
+from app.observability.cost import compute_cost
 from app.observability.models import Span, Trace
 from app.schemas.trace import (
     FailureBreakdownItem,
     KindSuccessRate,
     NodeStatItem,
     SpanPublic,
+    TraceCostSummary,
     TraceDetail,
     TraceMetricsSummary,
     TracePage,
@@ -257,4 +259,30 @@ async def get_trace(
     return TraceDetail(
         trace=_trace_public(trace, duration_ms),
         spans=[SpanPublic.model_validate(s) for s in spans],
+        cost=_trace_cost(spans),
+    )
+
+
+def _trace_cost(spans: list[Span]) -> TraceCostSummary:
+    """spans 已全量在手，成本直接在内存里折算（obs#9）。
+
+    计费口径与 eval 侧 trace_join 一致：llm token 求和 + image.ai
+    succeeded 计张数，单价走 env（见 app/observability/cost.py）。
+    """
+    prompt = sum(s.prompt_tokens or 0 for s in spans if s.span_kind == "llm")
+    completion = sum(s.completion_tokens or 0 for s in spans if s.span_kind == "llm")
+    ai_images = sum(
+        1
+        for s in spans
+        if s.span_kind == "image" and s.name == "image.ai" and s.status == "succeeded"
+    )
+    cost = compute_cost(prompt, completion, ai_images)
+    return TraceCostSummary(
+        configured=cost.configured,
+        prompt_tokens=prompt,
+        completion_tokens=completion,
+        ai_image_count=ai_images,
+        llm_cost=round(cost.llm_cost, 4),
+        image_cost=round(cost.image_cost, 4),
+        total_cost=round(cost.total_cost, 4),
     )

@@ -67,6 +67,10 @@ class CaseRow(BaseModel):
     outline_duration_ms: int = 0
     slide_durations_ms: list[int] = Field(default_factory=list)
     export_duration_ms: int = 0
+    # obs#9：成本口径。cost 为 token×单价 + AI 生图张数×单价（人民币元），
+    # 单价未配置时为 0；ai_image_count 是计费张数（image.ai succeeded）
+    ai_image_count: int = 0
+    cost: float = 0.0
 
 
 class RunSummary(BaseModel):
@@ -99,6 +103,11 @@ class RunSummary(BaseModel):
     avg_export_seconds: float = 0.0
     # tokens 来源为 trace 的成功题数（小于 ok_cases 即有题查不到 trace）
     token_joined_cases: int = 0
+    # 成本口径（obs#9）：avg_cost 与 avg_prompt_tokens 同分母（成功题均值，
+    # 便于与 token 均值对照）；total_cost 是全部题的实际花费合计——
+    # 失败题同样烧了 token，总花费必须把它算进去
+    avg_cost: float = 0.0
+    total_cost: float = 0.0
     total_failed_slides: int = 0
     total_slides: int = 0
     retry_slide_rate: float | None = None
@@ -215,9 +224,13 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
         summary.token_joined_cases = sum(
             1 for row in ok_rows if row.tokens_source == "trace"
         )
+        summary.avg_cost = sum(row.cost for row in ok_rows) / len(ok_rows)
     else:
         summary.avg_prompt_tokens = 0.0
         summary.avg_completion_tokens = 0.0
+
+    # 总花费按全部题累计：失败题同样消耗 token 与生图配额
+    summary.total_cost = sum(row.cost for row in rows)
 
     summary.total_failed_slides = sum(row.failed_slide_seen for row in rows)
     summary.total_slides = sum(row.total_slides for row in rows)
@@ -276,6 +289,10 @@ def format_report(report: EvalReport) -> str:
         f"（口径：按 trace join spans 聚合，成功题均值；查不到 trace 的题按 0）"
     )
     lines.append(
+        f"成本：平均 {_fmt_float(s.avg_cost, 4)} 元 / 题　合计 {_fmt_float(s.total_cost, 4)} 元"
+        f"（口径：token×单价 + AI 生图张数×单价；单价走 env，未配置则记 0）"
+    )
+    lines.append(
         f"重试率：{s.total_failed_slides}/{s.total_slides}（{_fmt_pct(s.retry_slide_rate)}）"
         f"　主动逐页重试 {s.total_retried_slides} 次"
     )
@@ -330,6 +347,11 @@ def format_report(report: EvalReport) -> str:
     lines.append(
         "- 平均 Token：按题的 trace_id join spans 表聚合（llm span 求和）；"
         "成功题均值，查不到 trace 的题按 0 并标注来源。"
+    )
+    lines.append(
+        "- 成本：llm token（百万 token 单价）+ AI 生图张数（image.ai succeeded，"
+        "每张单价）；单价经 LLM_PRICE_PER_MTOK_* / IMAGE_PRICE_PER_UNIT 配置，"
+        "未配置时成本记 0，不代表免费。"
     )
     lines.append("- 无硬门禁：任何指标不达标不影响退出码（环境性错误除外）。")
     return "\n".join(lines) + "\n"

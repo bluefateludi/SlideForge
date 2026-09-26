@@ -12,7 +12,7 @@ import {
   type EvalRunDetail,
 } from '@/features/eval/types'
 import { errorMessage } from '@/lib/errors'
-import { cn } from '@/lib/utils'
+import { cn, formatCost } from '@/lib/utils'
 
 /** 综合分：直接用 avg_judge_score（0-10）归一化到百分制展示，权重仅作说明性文案 */
 function overallScore(run: EvalRunDetail): number | null {
@@ -83,9 +83,14 @@ export default function EvalRunDetailPage() {
         <MetricCard label="幻觉率（仅文档题）" value={formatPercent(data.hallucination_rate)} />
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard label="平均耗时" value={formatDuration(data.avg_elapsed_seconds)} unit="/题" />
         <MetricCard label="平均 Token" value={avgTokens.toLocaleString()} unit="/题" />
+        <MetricCard
+          label="平均成本"
+          value={formatCost(data.avg_cost)}
+          unit="/题"
+        />
         <MetricCard label="失败率" value={formatPercent(data.failure_rate)} />
         <MetricCard label="重试率" value={formatPercent(data.retry_slide_rate)} />
       </div>
@@ -210,6 +215,7 @@ function CaseTable({ run }: { run: EvalRunDetail }) {
             <th className="px-4 py-3 text-right">覆盖分</th>
             <th className="px-4 py-3 text-right">幻觉率</th>
             <th className="px-4 py-3 text-right">Token</th>
+            <th className="px-4 py-3 text-right">成本</th>
             <th className="px-4 py-3 text-right">分段耗时</th>
             <th className="px-4 py-3 text-right">耗时</th>
             <th className="px-4 py-3">状态</th>
@@ -268,6 +274,16 @@ function CaseTableRow({ row, index }: { row: EvalCaseRow; index: number }) {
       </td>
       <td className="px-4 py-3 text-right tabular-nums" title={stageTitle}>
         {tokenText}
+      </td>
+      <td
+        className="px-4 py-3 text-right tabular-nums"
+        title={
+          row.ai_image_count > 0
+            ? `含 ${row.ai_image_count} 张 AI 生图；单价未配置或 trace 不可用时成本记 0`
+            : '单价未配置或 trace 不可用时成本记 0'
+        }
+      >
+        {formatCost(row.cost)}
       </td>
       <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap" title={stageTitle}>
         {stageText}

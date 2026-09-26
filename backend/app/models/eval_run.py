@@ -49,6 +49,10 @@ class EvalRun(Base):
     # 每题 token 总和取均值；查不到 trace 的题按 0 参与
     avg_prompt_tokens: Mapped[float] = mapped_column(Float, nullable=False)
     avg_completion_tokens: Mapped[float] = mapped_column(Float, nullable=False)
+    # 成本口径（obs#9，人民币元）：avg 与 token 均值同分母（成功题）；
+    # total 按全部题累计（失败题同样花钱）。单价未配置时为 0
+    avg_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    total_cost: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     total_failed_slides: Mapped[int] = mapped_column(Integer, nullable=False)
     total_slides: Mapped[int] = mapped_column(Integer, nullable=False)
     retry_slide_rate: Mapped[float | None] = mapped_column(Float)

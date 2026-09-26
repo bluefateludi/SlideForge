@@ -54,6 +54,9 @@ class EvalCaseRow(BaseModel):
     outline_duration_ms: int = 0
     slide_durations_ms: list[int] = Field(default_factory=list)
     export_duration_ms: int = 0
+    # obs#9：成本（人民币元）与计费 AI 生图张数；单价未配置时 cost 为 0
+    ai_image_count: int = 0
+    cost: float = 0.0
 
 
 class EvalRunPublic(BaseModel):
@@ -84,6 +87,9 @@ class EvalRunPublic(BaseModel):
     avg_elapsed_seconds: float
     avg_prompt_tokens: float
     avg_completion_tokens: float
+    # obs#9：avg 为成功题均值（与 token 均值同分母），total 为全部题合计
+    avg_cost: float
+    total_cost: float
     retry_slide_rate: float | None
     total_failed_slides: int
     total_slides: int

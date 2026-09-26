@@ -13,7 +13,7 @@ import {
   type TraceDetail,
 } from '@/features/trace/types'
 import { errorMessage } from '@/lib/errors'
-import { cn } from '@/lib/utils'
+import { cn, formatCost } from '@/lib/utils'
 
 export default function TraceDetailPage() {
   const { traceId } = useParams()
@@ -81,6 +81,14 @@ function TraceHeader({ data }: { data: TraceDetail }) {
           {status.label}
         </span>
         <span className="text-sm text-ink-muted">时长 {formatMs(trace.duration_ms)}</span>
+        {data.cost?.configured && (
+          <span
+            className="text-sm tabular-nums text-ink-muted"
+            title={`LLM ¥${data.cost.llm_cost}（↑${data.cost.prompt_tokens} ↓${data.cost.completion_tokens}）＋ 生图 ¥${data.cost.image_cost}（${data.cost.ai_image_count} 张）`}
+          >
+            成本 {formatCost(data.cost.total_cost)}
+          </span>
+        )}
         <span className="text-sm tabular-nums text-ink-muted">
           {formatDateTime(trace.started_at)} →{' '}
           {trace.finished_at ? formatDateTime(trace.finished_at) : '…'}

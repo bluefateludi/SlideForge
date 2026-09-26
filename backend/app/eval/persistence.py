@@ -49,6 +49,8 @@ _DETAIL_KEYS = (
     "outline_duration_ms",
     "slide_durations_ms",
     "export_duration_ms",
+    "ai_image_count",
+    "cost",
 )
 
 
@@ -130,6 +132,8 @@ async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
         row.outline_duration_ms = joined.outline_duration_ms
         row.slide_durations_ms = joined.slide_durations_ms
         row.export_duration_ms = joined.export_duration_ms
+        row.ai_image_count = joined.ai_image_count
+        row.cost = joined.total_cost
     report.summary = aggregate(report.rows)
 
 
@@ -174,6 +178,8 @@ def report_to_run(
         avg_elapsed_seconds=s.avg_elapsed_seconds,
         avg_prompt_tokens=s.avg_prompt_tokens,
         avg_completion_tokens=s.avg_completion_tokens,
+        avg_cost=s.avg_cost,
+        total_cost=s.total_cost,
         total_failed_slides=s.total_failed_slides,
         total_slides=s.total_slides,
         retry_slide_rate=s.retry_slide_rate,

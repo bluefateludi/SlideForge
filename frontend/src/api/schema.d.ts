@@ -1594,6 +1594,16 @@ export interface components {
              * @default 0
              */
             export_duration_ms: number;
+            /**
+             * Ai Image Count
+             * @default 0
+             */
+            ai_image_count: number;
+            /**
+             * Cost
+             * @default 0
+             */
+            cost: number;
         };
         /**
          * EvalCategoryScore
@@ -1678,6 +1688,10 @@ export interface components {
             avg_prompt_tokens: number;
             /** Avg Completion Tokens */
             avg_completion_tokens: number;
+            /** Avg Cost */
+            avg_cost: number;
+            /** Total Cost */
+            total_cost: number;
             /** Retry Slide Rate */
             retry_slide_rate: number | null;
             /** Total Failed Slides */
@@ -1756,6 +1770,10 @@ export interface components {
             avg_prompt_tokens: number;
             /** Avg Completion Tokens */
             avg_completion_tokens: number;
+            /** Avg Cost */
+            avg_cost: number;
+            /** Total Cost */
+            total_cost: number;
             /** Retry Slide Rate */
             retry_slide_rate: number | null;
             /** Total Failed Slides */
@@ -2661,6 +2679,8 @@ export interface components {
             issues: components["schemas"]["StructureIssue"][];
             /** Error */
             error: string | null;
+            /** Error Code */
+            error_code?: string | null;
             /** Revision */
             revision: number;
             /**
@@ -2781,7 +2801,7 @@ export interface components {
              * Span Kind
              * @enum {string}
              */
-            span_kind: "task" | "node" | "llm" | "export";
+            span_kind: "task" | "node" | "llm" | "export" | "image";
             /**
              * Status
              * @enum {string}
@@ -3014,6 +3034,48 @@ export interface components {
             user: components["schemas"]["UserPublic"];
         };
         /**
+         * TraceCostSummary
+         * @description 单条 trace 的成本估算（人民币元，展示精度 4 位小数）。
+         */
+        TraceCostSummary: {
+            /**
+             * Configured
+             * @description 任一单价已配置即为 true
+             */
+            configured: boolean;
+            /**
+             * Prompt Tokens
+             * @default 0
+             */
+            prompt_tokens: number;
+            /**
+             * Completion Tokens
+             * @default 0
+             */
+            completion_tokens: number;
+            /**
+             * Ai Image Count
+             * @description 计费张数：image.ai 且 succeeded
+             * @default 0
+             */
+            ai_image_count: number;
+            /**
+             * Llm Cost
+             * @default 0
+             */
+            llm_cost: number;
+            /**
+             * Image Cost
+             * @default 0
+             */
+            image_cost: number;
+            /**
+             * Total Cost
+             * @default 0
+             */
+            total_cost: number;
+        };
+        /**
          * TraceDetail
          * @description 详情：trace 本体 + spans 全量（按 started_at, id 排序，树由前端自建）。
          */
@@ -3021,6 +3083,7 @@ export interface components {
             trace: components["schemas"]["TracePublic"];
             /** Spans */
             spans: components["schemas"]["SpanPublic"][];
+            cost: components["schemas"]["TraceCostSummary"];
         };
         /**
          * TraceMetricsSummary
