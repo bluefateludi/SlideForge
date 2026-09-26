@@ -89,6 +89,19 @@ class ImagePipeline:
 
 def create_image_pipeline(client: httpx.AsyncClient) -> ImagePipeline:
     settings = get_settings()
+    if settings.image_provider == "unsplash":
+        # 省钱档（#32 成本约束）：不配付费生图主源，直接走免费图库；
+        # 图库未配 key 时落到占位图。布局/导出类验收只看几何尺寸，
+        # 不依赖真实图片内容。
+        return ImagePipeline(
+            [
+                UnsplashImageProvider(
+                    client=client,
+                    access_key=settings.unsplash_access_key,
+                    timeout_seconds=settings.image_timeout_seconds,
+                ),
+            ]
+        )
     if settings.image_provider == "bailian":
         primary: ImageProvider = BailianImageProvider(
             client=client,
