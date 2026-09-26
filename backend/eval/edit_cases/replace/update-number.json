@@ -1,0 +1,20 @@
+{
+  "id": "replace/update-number",
+  "instruction": "把本页中最适合展示规模的那个数字改成「42%」，只改最相关的一处。",
+  "seed": {
+    "topic": "一家新能源汽车品牌的季度销量快报：交付量环比大增，订单转化率是核心指标，渠道下沉贡献显著。",
+    "page_count": 2,
+    "title": "季度销量快报"
+  },
+  "lock": "none",
+  "expect": {
+    "op_types": [
+      "replace"
+    ],
+    "max_ops": 1,
+    "after_contains": [
+      "42%"
+    ],
+    "locked_zero_edit": true
+  }
+}

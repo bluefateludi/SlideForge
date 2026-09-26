@@ -44,6 +44,9 @@ class TraceJoinResult:
     tokens_source: str = TRACE_UNAVAILABLE
     # 计费 AI 生图张数（image.ai 且 succeeded；obs#9）
     ai_image_count: int = 0
+    # 修复收敛（obs/10）：进入修复轮的页数，及其中最终 succeeded 的页数
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
     # 成本折算结果（人民币元）；单价未配置时各项为 0 且 configured=False
     llm_cost: float = 0.0
     image_cost: float = 0.0
@@ -79,6 +82,8 @@ async def join_trace_metrics(
             (
                 await session.execute(
                     select(
+                        Span.id,
+                        Span.parent_span_id,
                         Span.trace_id,
                         Span.name,
                         Span.span_kind,
@@ -96,7 +101,17 @@ async def join_trace_metrics(
 
     result = TraceJoinResult()
     seen_token = False
-    for _trace_id, name, span_kind, status, duration_ms, prompt, completion in rows:
+    # 修复收敛（obs/10）：repair 子 span 的 parent 即页 task span，
+    # 据此判定「进过修复的页」及其最终状态
+    repaired_task_ids: set[int] = set()
+    for row in rows:
+        parent_span_id = row[1]
+        name, span_kind = row[3], row[4]
+        if span_kind == "node" and name == "slide.repair" and parent_span_id is not None:
+            repaired_task_ids.add(parent_span_id)
+    for row in rows:
+        span_id, name, span_kind, status = row[0], row[3], row[4], row[5]
+        duration_ms, prompt, completion = row[6], row[7], row[8]
         duration = duration_ms or 0
         if span_kind == "llm":
             result.prompt_tokens += prompt or 0
@@ -107,6 +122,10 @@ async def join_trace_metrics(
             result.outline_duration_ms += duration
         if span_kind == "task":
             result.slide_durations_ms.append(duration)
+            if span_id in repaired_task_ids:
+                result.repair_spans += 1
+                if status == "succeeded":
+                    result.repaired_succeeded += 1
         if name.startswith("export."):
             result.export_duration_ms += duration
         if span_kind == "image" and name == "image.ai" and status == "succeeded":
@@ -141,6 +160,8 @@ def merge_join_into_detail(detail: dict, join: TraceJoinResult) -> dict:
     detail["tokens_source"] = join.tokens_source
     detail["ai_image_count"] = join.ai_image_count
     detail["cost"] = join.total_cost
+    detail["repair_spans"] = join.repair_spans
+    detail["repaired_succeeded"] = join.repaired_succeeded
     return detail
 
 

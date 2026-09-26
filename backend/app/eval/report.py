@@ -71,6 +71,9 @@ class CaseRow(BaseModel):
     # 单价未配置时为 0；ai_image_count 是计费张数（image.ai succeeded）
     ai_image_count: int = 0
     cost: float = 0.0
+    # 修复收敛（obs/10）：进入修复轮的页数 / 其中最终成功的页数
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
 
 
 class RunSummary(BaseModel):
@@ -108,6 +111,10 @@ class RunSummary(BaseModel):
     # 失败题同样烧了 token，总花费必须把它算进去
     avg_cost: float = 0.0
     total_cost: float = 0.0
+    # 修复收敛（obs/10，成功题口径）：首过率 = 未进修复的页占比；
+    # 修复成功率 = 进修复的页最终成功占比（修复轮上限 1）
+    slide_first_pass_rate: float | None = None
+    slide_repair_success_rate: float | None = None
     total_failed_slides: int = 0
     total_slides: int = 0
     retry_slide_rate: float | None = None
@@ -232,6 +239,15 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
     # 总花费按全部题累计：失败题同样消耗 token 与生图配额
     summary.total_cost = sum(row.cost for row in rows)
 
+    # 修复收敛（成功题口径，与 token 均值同分母）
+    ok_slide_total = sum(len(row.slide_durations_ms) for row in ok_rows)
+    ok_repair_total = sum(row.repair_spans for row in ok_rows)
+    ok_repaired_succeeded = sum(row.repaired_succeeded for row in ok_rows)
+    if ok_slide_total:
+        summary.slide_first_pass_rate = (ok_slide_total - ok_repair_total) / ok_slide_total
+    if ok_repair_total:
+        summary.slide_repair_success_rate = ok_repaired_succeeded / ok_repair_total
+
     summary.total_failed_slides = sum(row.failed_slide_seen for row in rows)
     summary.total_slides = sum(row.total_slides for row in rows)
     summary.total_retried_slides = sum(row.retried_slides for row in rows)
@@ -291,6 +307,11 @@ def format_report(report: EvalReport) -> str:
     lines.append(
         f"成本：平均 {_fmt_float(s.avg_cost, 4)} 元 / 题　合计 {_fmt_float(s.total_cost, 4)} 元"
         f"（口径：token×单价 + AI 生图张数×单价；单价走 env，未配置则记 0）"
+    )
+    lines.append(
+        f"首过合法率：{_fmt_pct(s.slide_first_pass_rate)}"
+        f"　修复成功率：{_fmt_pct(s.slide_repair_success_rate)}"
+        f"（口径：成功题的页级 span 统计；修复轮上限 1）"
     )
     lines.append(
         f"重试率：{s.total_failed_slides}/{s.total_slides}（{_fmt_pct(s.retry_slide_rate)}）"

@@ -147,6 +147,34 @@ async def get_metrics_summary(
     ).one()
     slide_success_rate = round(slide_succeeded / slide_total, 3) if slide_total else None
 
+    # 3b) 修复收敛（obs/10）：首过率 = 无 slide.repair 子节点的页占比；
+    # 修复成功率 = 进过 repair 的页最终 succeeded 的占比。
+    # 修复轮数上限 1（workflows/slide.py），每页至多一个 repair 子 span
+    repaired_parents = (
+        select(Span.parent_span_id)
+        .where(span_in_window, Span.span_kind == "node", Span.name == "slide.repair")
+        .subquery()
+    )
+    slide_repair_total, slide_repair_succeeded = (
+        await session.execute(
+            select(
+                func.count().label("total"),
+                func.count().filter(Span.status == "succeeded").label("succeeded"),
+            ).where(
+                span_in_window,
+                Span.span_kind == "task",
+                Span.name.like("slide[%]"),
+                Span.id.in_(select(repaired_parents.c.parent_span_id)),
+            )
+        )
+    ).one()
+    slide_first_pass_rate = (
+        round((slide_total - slide_repair_total) / slide_total, 3) if slide_total else None
+    )
+    slide_repair_success_rate = (
+        round(slide_repair_succeeded / slide_repair_total, 3) if slide_repair_total else None
+    )
+
     # 4) llm token 平均与总和
     avg_prompt, avg_completion, total_prompt, total_completion = (
         await session.execute(
@@ -225,6 +253,9 @@ async def get_metrics_summary(
         slide_total=slide_total,
         slide_succeeded=slide_succeeded,
         slide_success_rate=slide_success_rate,
+        slide_first_pass_rate=slide_first_pass_rate,
+        slide_repair_total=slide_repair_total,
+        slide_repair_success_rate=slide_repair_success_rate,
         avg_prompt_tokens=round1(avg_prompt),
         avg_completion_tokens=round1(avg_completion),
         total_prompt_tokens=total_prompt or 0,

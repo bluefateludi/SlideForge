@@ -1,0 +1,20 @@
+{
+  "id": "add/callout-source",
+  "instruction": "在本页添加一个 callout 块，文本写「数据口径见年报附录」，其余内容不要动。",
+  "seed": {
+    "topic": "生物医药公司研发管线进展：三条管线进入临床二期，核心化合物数据积极，适应症人群扩大。",
+    "page_count": 2,
+    "title": "研发管线进展"
+  },
+  "lock": "none",
+  "expect": {
+    "op_types": [
+      "add"
+    ],
+    "max_ops": 1,
+    "after_contains": [
+      "数据口径见年报附录"
+    ],
+    "locked_zero_edit": true
+  }
+}

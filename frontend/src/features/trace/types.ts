@@ -49,6 +49,7 @@ export const SPAN_KIND_LABEL: Record<SpanPublic['span_kind'], string> = {
   llm: 'LLM',
   export: '导出',
   image: '图片',
+  tool: '工具',
 }
 
 /** 毫秒 → "1 分 23 秒" / "32 秒" / "850 ms"；空值与 0 展示占位符 */
