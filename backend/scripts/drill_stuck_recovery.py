@@ -5,8 +5,9 @@
 
   uv run --project backend python backend/scripts/drill_stuck_recovery.py setup
       # 建 5 页项目并开始整份生成，打印 project_id 后立刻去杀 worker：
-      #   powershell "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" |
-      #     Where-Object {$_.CommandLine -like '*arq*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
+      #   powershell "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" \
+      #     | Where-Object {$_.CommandLine -like '*arq*'} \
+      #     | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"
 
   uv run --project backend python backend/scripts/drill_stuck_recovery.py stuck <project_id>
       # 把还在 generating 的页 started_at 回拨 11 分钟（模拟 10 分钟阈值流逝；
@@ -28,7 +29,6 @@ import asyncio
 import os
 import secrets
 import sys
-import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -118,18 +118,19 @@ async def cmd_setup() -> None:
 
 
 async def cmd_stuck(project_id: str) -> None:
+    from sqlalchemy import select
+
     from app.core.db import async_session_factory
     from app.models.slide import Slide
-    from sqlalchemy import select
 
     async with async_session_factory() as session:
         result = await session.execute(select(Slide).where(Slide.project_id == project_id))
         slides = list(result.scalars())
-        for slide in slides:
-            if slide.status == "generating":
-                slide.started_at = datetime.now(UTC) - timedelta(minutes=11)
+        stuck = [s for s in slides if s.status == "generating"]
+        for slide in stuck:
+            slide.started_at = datetime.now(UTC) - timedelta(minutes=11)
         await session.commit()
-        print(f"已把 {sum(1 for s in slides if s.status == 'generating')} 个 generating 页回拨 11 分钟")
+        print(f"已把 {len(stuck)} 个 generating 页回拨 11 分钟")
 
 
 async def cmd_verify(project_id: str) -> None:

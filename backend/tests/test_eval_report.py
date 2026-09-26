@@ -254,3 +254,37 @@ class TestFormatReport:
         assert "trace join" in text
         assert "恒 0" not in text
         assert "worker 进程埋点不可达" not in text
+
+
+class TestCostAggregation:
+    """obs#9：avg_cost 与 token 均值同分母（成功题），total_cost 全题累计。"""
+
+    def test_avg_cost_uses_ok_rows_and_total_counts_all(self) -> None:
+        from app.eval.report import CaseRow
+
+        rows = [
+            CaseRow(case_id="a", ok=True, stage="done", cost=3.0),
+            CaseRow(case_id="b", ok=True, stage="done", cost=1.0),
+            CaseRow(case_id="c", ok=False, stage="deck_wait", error="x", cost=2.0),
+        ]
+        summary = aggregate(rows)
+        assert summary.avg_cost == 2.0
+        assert summary.total_cost == 6.0
+
+    def test_zero_cost_when_unpriced(self) -> None:
+        from app.eval.report import CaseRow
+
+        rows = [CaseRow(case_id="a", ok=True, stage="done")]
+        summary = aggregate(rows)
+        assert summary.avg_cost == 0.0
+        assert summary.total_cost == 0.0
+
+    def test_format_report_contains_cost_line(self) -> None:
+        from app.eval.report import CaseRow, EvalReport
+
+        report = EvalReport()
+        report.rows = [CaseRow(case_id="a", ok=True, stage="done", cost=1.5)]
+        report.summary = aggregate(report.rows)
+        text = format_report(report)
+        assert "成本" in text
+        assert "单价" in text

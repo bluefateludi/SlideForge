@@ -6,6 +6,8 @@ runner 记下 outline/deck 生成 202 响应的 trace_id；本模块在报告组
 - 分段耗时：outline 段 = name like 'outline.%' 的 duration_ms 和；
   deck 段 = span_kind='task' 的每页 duration_ms（列表，按 position 排序）；
   export 段 = name like 'export.%' 的 duration_ms 和（挂在 deck trace 下）
+- 成本（obs#9）：token 与 AI 生图张数按 env 单价折算——计费张数 =
+  image.ai 且 succeeded 的 span 数，见 app/observability/cost.py
 查询失败 / trace 不存在 / llm span 无 token 时按「查不到」降级：
 数值回退 0、tokens_source='unavailable'，绝不让 join 失败炸了报告。
 """
@@ -18,6 +20,8 @@ from dataclasses import dataclass, field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
+from app.observability.cost import compute_cost
 from app.observability.models import Span
 
 TRACE_SOURCE = "trace"
@@ -38,6 +42,13 @@ class TraceJoinResult:
     # "trace"：至少一条 llm span 带回了 token；"unavailable"：查不到
     # （无 trace_id / 查询失败 / llm span 均无 token），token 数按 0 展示
     tokens_source: str = TRACE_UNAVAILABLE
+    # 计费 AI 生图张数（image.ai 且 succeeded；obs#9）
+    ai_image_count: int = 0
+    # 成本折算结果（人民币元）；单价未配置时各项为 0 且 configured=False
+    llm_cost: float = 0.0
+    image_cost: float = 0.0
+    total_cost: float = 0.0
+    cost_configured: bool = False
 
 
 def _empty() -> TraceJoinResult:
@@ -49,6 +60,7 @@ async def join_trace_metrics(
     *,
     outline_trace_id: str | uuid.UUID | None,
     deck_trace_id: str | uuid.UUID | None,
+    settings: Settings | None = None,
 ) -> TraceJoinResult:
     """按两段 trace_id 聚合 spans。任何异常吞掉、按查不到降级。"""
     ids: list[uuid.UUID] = []
@@ -70,6 +82,7 @@ async def join_trace_metrics(
                         Span.trace_id,
                         Span.name,
                         Span.span_kind,
+                        Span.status,
                         Span.duration_ms,
                         Span.prompt_tokens,
                         Span.completion_tokens,
@@ -83,7 +96,7 @@ async def join_trace_metrics(
 
     result = TraceJoinResult()
     seen_token = False
-    for _trace_id, name, span_kind, duration_ms, prompt, completion in rows:
+    for _trace_id, name, span_kind, status, duration_ms, prompt, completion in rows:
         duration = duration_ms or 0
         if span_kind == "llm":
             result.prompt_tokens += prompt or 0
@@ -96,9 +109,21 @@ async def join_trace_metrics(
             result.slide_durations_ms.append(duration)
         if name.startswith("export."):
             result.export_duration_ms += duration
+        if span_kind == "image" and name == "image.ai" and status == "succeeded":
+            result.ai_image_count += 1
 
     result.tokens_source = TRACE_SOURCE if seen_token else TRACE_UNAVAILABLE
     result.slide_durations_ms.sort()
+    cost = compute_cost(
+        result.prompt_tokens,
+        result.completion_tokens,
+        result.ai_image_count,
+        settings=settings,
+    )
+    result.llm_cost = cost.llm_cost
+    result.image_cost = cost.image_cost
+    result.total_cost = cost.total_cost
+    result.cost_configured = cost.configured
     return result
 
 
@@ -114,6 +139,8 @@ def merge_join_into_detail(detail: dict, join: TraceJoinResult) -> dict:
     detail["slide_durations_ms"] = join.slide_durations_ms
     detail["export_duration_ms"] = join.export_duration_ms
     detail["tokens_source"] = join.tokens_source
+    detail["ai_image_count"] = join.ai_image_count
+    detail["cost"] = join.total_cost
     return detail
 
 

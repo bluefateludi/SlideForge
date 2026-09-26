@@ -51,13 +51,14 @@ async def _add_span(
     duration_ms: int | None = 500,
     prompt_tokens: int | None = None,
     completion_tokens: int | None = None,
+    status: str = "succeeded",
 ) -> None:
     session.add(
         Span(
             trace_id=trace_id,
             name=name,
             span_kind=span_kind,
-            status="succeeded",
+            status=status,
             duration_ms=duration_ms,
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
@@ -248,3 +249,80 @@ def _ok_artifacts(case_id: str, *, outline: str | None, deck: str | None) -> Cas
         outline_trace_id=outline,
         deck_trace_id=deck,
     )
+
+
+@pytest.mark.asyncio
+async def test_join_counts_billable_images_and_cost(project_id: uuid.UUID) -> None:
+    """obs#9：计费张数只数 image.ai succeeded；成本按 env 单价折算。"""
+    from app.core.config import Settings
+    from app.eval.trace_join import TRACE_SOURCE, join_trace_metrics
+
+    async with async_session_factory() as session:
+        outline_trace = uuid.uuid4()
+        deck_trace = uuid.uuid4()
+        session.add(
+            Trace(id=outline_trace, kind="outline", status="succeeded", project_id=project_id)
+        )
+        session.add(Trace(id=deck_trace, kind="deck", status="succeeded", project_id=project_id))
+        await session.flush()
+        await _add_span(
+            session,
+            outline_trace,
+            name="llm",
+            span_kind="llm",
+            prompt_tokens=1_000_000,
+            completion_tokens=250_000,
+        )
+        await _add_span(
+            session,
+            deck_trace,
+            name="llm",
+            span_kind="llm",
+            prompt_tokens=100_000,
+            completion_tokens=25_000,
+        )
+        # 生图降级链：2 张交付、1 张失败、1 张图库（免费）
+        await _add_span(session, deck_trace, name="image.ai", span_kind="image")
+        await _add_span(session, deck_trace, name="image.ai", span_kind="image")
+        await _add_span(
+            session, deck_trace, name="image.ai", span_kind="image", status="failed"
+        )
+        await _add_span(session, deck_trace, name="image.unsplash", span_kind="image")
+        await session.commit()
+
+        prices = Settings(
+            llm_price_per_mtok_prompt=2.0,
+            llm_price_per_mtok_completion=8.0,
+            image_price_per_unit=0.1,
+        )
+        joined = await join_trace_metrics(
+            session,
+            outline_trace_id=str(outline_trace),
+            deck_trace_id=str(deck_trace),
+            settings=prices,
+        )
+        assert joined.tokens_source == TRACE_SOURCE
+        assert joined.ai_image_count == 2
+        # llm：1.1M×2 + 0.275M×8 = 4.4；生图：2×0.1
+        assert joined.llm_cost == pytest.approx(4.4)
+        assert joined.image_cost == pytest.approx(0.2)
+        assert joined.total_cost == pytest.approx(4.6)
+        assert joined.cost_configured is True
+
+        # 单价未配置：成本记 0 且 configured=False（不代表免费）
+        unpriced = await join_trace_metrics(
+            session,
+            outline_trace_id=str(outline_trace),
+            deck_trace_id=str(deck_trace),
+            settings=Settings(
+                llm_price_per_mtok_prompt=0.0,
+                llm_price_per_mtok_completion=0.0,
+                image_price_per_unit=0.0,
+            ),
+        )
+        assert unpriced.ai_image_count == 2
+        assert unpriced.total_cost == 0.0
+        assert unpriced.cost_configured is False
+
+        await session.execute(delete(Trace).where(Trace.id.in_([outline_trace, deck_trace])))
+        await session.commit()

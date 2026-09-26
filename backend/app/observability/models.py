@@ -14,7 +14,9 @@ from app.core.db import Base
 
 TraceKind = Literal["outline", "deck"]
 TraceStatus = Literal["running", "succeeded", "failed", "cancelled"]
-SpanKind = Literal["task", "node", "llm", "export"]
+# image：图片管线降级链（obs#5）。表列无约束，Literal 只是类型层口径，
+# 新 kind 先写库后补类型时应同步两端（schemas/trace.py 同名别名）
+SpanKind = Literal["task", "node", "llm", "export", "image"]
 
 
 class Trace(Base):

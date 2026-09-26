@@ -5,6 +5,7 @@ type Schemas = components['schemas']
 export type TracePublic = Schemas['TracePublic']
 export type TracePage = Schemas['TracePage']
 export type TraceDetail = Schemas['TraceDetail']
+export type TraceCostSummary = Schemas['TraceCostSummary']
 export type SpanPublic = Schemas['SpanPublic']
 export type TraceMetricsSummary = Schemas['TraceMetricsSummary']
 export type KindSuccessRate = Schemas['KindSuccessRate']
@@ -17,6 +18,7 @@ export const TRACE_LIST_LIMIT = 100
 export const KIND_LABEL: Record<TracePublic['kind'], string> = {
   outline: '大纲',
   deck: '整册',
+  ai_edit: 'AI 编辑',
 }
 
 export const TRACE_STATUS_LABEL: Record<
@@ -46,6 +48,7 @@ export const SPAN_KIND_LABEL: Record<SpanPublic['span_kind'], string> = {
   node: '节点',
   llm: 'LLM',
   export: '导出',
+  image: '图片',
 }
 
 /** 毫秒 → "1 分 23 秒" / "32 秒" / "850 ms"；空值与 0 展示占位符 */
