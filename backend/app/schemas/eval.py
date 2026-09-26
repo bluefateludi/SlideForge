@@ -57,6 +57,9 @@ class EvalCaseRow(BaseModel):
     # obs#9：成本（人民币元）与计费 AI 生图张数；单价未配置时 cost 为 0
     ai_image_count: int = 0
     cost: float = 0.0
+    # obs/10 修复收敛：进入修复轮的页数 / 其中最终成功的页数
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
 
 
 class EvalRunPublic(BaseModel):

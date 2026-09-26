@@ -1,0 +1,20 @@
+{
+  "id": "replace/retitle-page",
+  "instruction": "把这一页的标题改为「营收翻倍之路」，其余内容保持原样，不要新增或删除块。",
+  "seed": {
+    "topic": "一家 SaaS 公司的年度经营汇报：ARR 增长、客户留存率提升与续费扩张是三条主线，成本侧人效比改善明显。",
+    "page_count": 2,
+    "title": "年度经营汇报"
+  },
+  "lock": "body",
+  "expect": {
+    "op_types": [
+      "replace"
+    ],
+    "max_ops": 2,
+    "after_contains": [
+      "营收翻倍之路"
+    ],
+    "locked_zero_edit": true
+  }
+}

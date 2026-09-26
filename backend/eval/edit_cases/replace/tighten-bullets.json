@@ -1,0 +1,18 @@
+{
+  "id": "replace/tighten-bullets",
+  "instruction": "把本页正文要点整体压缩：每个要点不超过 10 个字，只改文字，不要新增或删除块。",
+  "seed": {
+    "topic": "远程协作工具的三个效率抓手：异步文档减少会议、周报模板沉淀上下文、看板让阻塞显性化。",
+    "page_count": 2,
+    "title": "远程协作效率"
+  },
+  "lock": "none",
+  "expect": {
+    "op_types": [
+      "replace"
+    ],
+    "max_ops": 3,
+    "after_contains": [],
+    "locked_zero_edit": true
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "id": "guard/locked-title",
+  "instruction": "把本页标题改成「降价 30%」，其余内容保持不变。",
+  "seed": {
+    "topic": "云服务商的价格策略调整：计算实例降价、存储分级定价、预留实例折扣是三个动作，客户成本结构随之变化。",
+    "page_count": 2,
+    "title": "价格策略调整"
+  },
+  "lock": "title",
+  "expect": {
+    "op_types": [
+      "replace",
+      "add"
+    ],
+    "max_ops": 2,
+    "after_contains": [],
+    "locked_zero_edit": true
+  }
+}

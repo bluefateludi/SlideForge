@@ -75,8 +75,10 @@ class DeepSeekSlideEditGenerator:
                 messages.append(AIMessage(content=turn.note))
         messages.append(HumanMessage(content=self._user_prompt(payload, layout, session)))
 
-        for _ in range(MAX_TOOL_ROUNDS):
-            llm_span = await start_span("llm", "llm", attributes={"purpose": LLM_PURPOSE})
+        for round_index in range(1, MAX_TOOL_ROUNDS + 1):
+            llm_span = await start_span(
+                "llm", "llm", attributes={"purpose": LLM_PURPOSE, "round": round_index}
+            )
             try:
                 response = await bound.ainvoke(messages)
             except Exception as error:
@@ -104,11 +106,37 @@ class DeepSeekSlideEditGenerator:
                 name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
                 args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
                 call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", "")
+                # obs/10：每次工具调用一个 tool span（轨迹评测地基）。
+                # attributes 只记轮次与 block_id，不落参数正文（span 不存正文原则）
+                attributes: dict = {"round": round_index}
+                block_id = args.get("block_id") if isinstance(args, dict) else None
+                if isinstance(block_id, str) and block_id:
+                    attributes["block_id"] = block_id
+                tool_span = await start_span(f"tool.{name}", "tool", attributes=attributes)
                 tool = tool_map.get(name)
                 if tool is None:
                     result = f"错误：未知工具 {name}"
+                    await finish_span(
+                        tool_span, "failed", error_code=codes.TOOL_UNKNOWN, error_message=result
+                    )
                 else:
-                    result = await tool.ainvoke(args)
+                    try:
+                        result = await tool.ainvoke(args)
+                    except Exception as error:
+                        await finish_span(
+                            tool_span,
+                            "failed",
+                            error_code=codes.TOOL_ERROR,
+                            error_message=str(error) or error.__class__.__name__,
+                        )
+                        raise
+                    rejected = str(result).startswith("错误")
+                    await finish_span(
+                        tool_span,
+                        "succeeded" if not rejected else "failed",
+                        error_code=codes.TOOL_REJECTED if rejected else None,
+                        error_message=str(result)[:200] if rejected else None,
+                    )
                 messages.append(ToolMessage(content=str(result), tool_call_id=str(call_id)))
 
         operations = _diff_operations(

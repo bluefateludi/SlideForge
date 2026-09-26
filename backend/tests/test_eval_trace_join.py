@@ -326,3 +326,57 @@ async def test_join_counts_billable_images_and_cost(project_id: uuid.UUID) -> No
 
         await session.execute(delete(Trace).where(Trace.id.in_([outline_trace, deck_trace])))
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_join_counts_repair_convergence(project_id: uuid.UUID) -> None:
+    """obs/10：repair_spans（进修复的页数）与 repaired_succeeded（修复后成功的页数）。"""
+
+    from app.eval.trace_join import join_trace_metrics
+
+    async with async_session_factory() as session:
+        deck_trace = uuid.uuid4()
+        session.add(Trace(id=deck_trace, kind="deck", status="succeeded", project_id=project_id))
+        await session.flush()
+
+        def _task(name: str, status: str) -> Span:
+            return Span(
+                trace_id=deck_trace, name=name, span_kind="task", status=status, duration_ms=1000
+            )
+
+        task1 = _task("slide[1]", "succeeded")
+        task2 = _task("slide[2]", "succeeded")
+        task3 = _task("slide[3]", "failed")
+        session.add_all([task1, task2, task3])
+        await session.flush()  # 拿 task id 做 repair 的 parent
+        session.add_all(
+            [
+                Span(
+                    trace_id=deck_trace,
+                    parent_span_id=task2.id,
+                    name="slide.repair",
+                    span_kind="node",
+                    status="succeeded",
+                    duration_ms=500,
+                ),
+                Span(
+                    trace_id=deck_trace,
+                    parent_span_id=task3.id,
+                    name="slide.repair",
+                    span_kind="node",
+                    status="succeeded",
+                    duration_ms=600,
+                ),
+            ]
+        )
+        await session.commit()
+
+        joined = await join_trace_metrics(
+            session, outline_trace_id=None, deck_trace_id=str(deck_trace)
+        )
+        assert joined.slide_durations_ms == [1000, 1000, 1000]
+        assert joined.repair_spans == 2
+        assert joined.repaired_succeeded == 1  # task2 修复后成功，task3 仍失败
+
+        await session.execute(delete(Trace).where(Trace.id == deck_trace))
+        await session.commit()

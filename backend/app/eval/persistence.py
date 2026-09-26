@@ -51,6 +51,8 @@ _DETAIL_KEYS = (
     "export_duration_ms",
     "ai_image_count",
     "cost",
+    "repair_spans",
+    "repaired_succeeded",
 )
 
 
@@ -134,6 +136,8 @@ async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
         row.export_duration_ms = joined.export_duration_ms
         row.ai_image_count = joined.ai_image_count
         row.cost = joined.total_cost
+        row.repair_spans = joined.repair_spans
+        row.repaired_succeeded = joined.repaired_succeeded
     report.summary = aggregate(report.rows)
 
 

@@ -1,4 +1,4 @@
-.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval
+.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval eval-edit
 
 up:
 	docker compose up -d
@@ -50,6 +50,11 @@ regression:
 # 需先 make dev（API/worker）与 docker 栈在跑；API 基址等见 scripts/run_eval.py 头注。
 eval:
 	cd backend && uv run python scripts/run_eval.py
+
+# ai_edit 工具环评测（obs/10）：真实栈跑「生成→锁块→局部修改」，提案层规则断言。
+# 注意：会驱动 deck 生成，Worker 配置生图凭证时会计费。
+eval-edit:
+	cd backend && uv run python scripts/run_edit_eval.py
 
 lint:
 	cd backend && uv run ruff check .
