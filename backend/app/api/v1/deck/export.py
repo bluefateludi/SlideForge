@@ -18,7 +18,7 @@ from app.observability.recorder import span, trace_exists
 from app.render.pptx import PPTX_MEDIA_TYPE, render_deck_to_pptx
 from app.render.verify import verify_pptx
 from app.schemas.deck import DeckPublic
-from app.services.deck import load_slides, to_deck_public
+from app.services.deck import load_slides, reconcile_stuck_slides, to_deck_public
 from app.services.quality import build_quality_report, project_to_content_deck
 
 logger = logging.getLogger(__name__)
@@ -28,6 +28,9 @@ router = APIRouter(prefix="/projects/{project_id}/deck", tags=["deck"])
 
 @router.get("", response_model=DeckPublic)
 async def get_deck(project: OwnedProject, session: SessionDep) -> DeckPublic:
+    # 读路径对账（ADR-0001）：卡死页在用户看到状态前就复位成 failed，
+    # 前端轮询拿到的是真终态而不是永恒的「生成中」
+    await reconcile_stuck_slides(session, project)
     slides = await load_slides(session, project.id)
     return to_deck_public(project, slides)
 

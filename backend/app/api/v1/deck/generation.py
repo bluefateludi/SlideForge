@@ -20,6 +20,7 @@ from app.services.deck import (
     deck_events,
     deck_status,
     load_slides,
+    reconcile_stuck_slides,
     request_cancel,
     reset_slide_for_regeneration,
     sync_slides,
@@ -101,6 +102,9 @@ async def generate_deck(
     queue: QueueDep,
 ) -> DeckGenerateAccepted:
     _ensure_confirmed(project)
+    # 先对账卡死页（ADR-0001）：worker 死亡留下的超时 generating 页在此复位，
+    # 之后的 _ensure_idle 只拦真正的活任务
+    await reconcile_stuck_slides(session, project)
     _ensure_idle(await load_slides(session, project.id))
 
     pending = await sync_slides(session, project, regenerate_all=body.regenerate_all)
@@ -151,6 +155,7 @@ async def retry_slide(
     queue: QueueDep,
 ) -> DeckGenerateAccepted:
     _ensure_confirmed(project)
+    await reconcile_stuck_slides(session, project)
     slides = await load_slides(session, project.id)
     target = next((slide for slide in slides if slide.id == slide_id), None)
     if target is None:
@@ -172,8 +177,12 @@ async def retry_slide(
 
 @router.post("/cancel", status_code=status.HTTP_202_ACCEPTED)
 async def cancel_deck(project: OwnedProject, session: SessionDep) -> Response:
+    reconciled = await reconcile_stuck_slides(session, project)
     slides = await load_slides(session, project.id)
     if deck_status(slides, project_status=project.status) != "generating":
+        if reconciled:
+            # 卡死页已由对账复位，取消目的已达成，不必再报 409
+            return Response(status_code=status.HTTP_202_ACCEPTED)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="当前没有生成任务")
     await request_cancel(project.id)
     return Response(status_code=status.HTTP_202_ACCEPTED)

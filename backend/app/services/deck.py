@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from pydantic import TypeAdapter
 from sqlalchemy import delete, select
@@ -11,7 +12,8 @@ from app.domain.flex_layout import FlexContainer
 from app.domain.outline import OutlinePage
 from app.domain.theme import Theme
 from app.domain.validation import validate_slide
-from app.models.project import Project
+from app.llm.errors import InvalidModelOutputError, LLMNotConfiguredError
+from app.models.project import Project, ProjectOutline
 from app.models.slide import Slide
 from app.schemas.deck import DeckEvent, DeckPublic, DeckStatus, SlidePublic
 from app.services.events import EventStream
@@ -195,3 +197,97 @@ async def clear_cancel(project_id: uuid.UUID) -> None:
 
 async def is_cancelled(project_id: uuid.UUID) -> bool:
     return await get_redis().exists(cancel_key(project_id)) == 1
+
+
+# ---------- 崩溃恢复：stuck generating 的惰性对账（#33 / ADR-0001） ----------
+
+# 单页合法最长 ≈ 5 分钟（LLM 60s 超时 × 含修复最多 2 次 + 配图 60s），
+# 10 分钟留 2 倍裕量且远小于 job_timeout 15 分钟，不会误杀慢页。
+STUCK_GENERATING_AFTER = timedelta(minutes=10)
+
+STUCK_PUBLIC_ERROR = "生成中断（worker 异常终止），请重试"
+
+# 页级失败错误码。刻意独立于 observability 侧 codes，避免与观测路线耦合（ADR-0001）
+SLIDE_ERROR_WORKER_DEAD = "worker_dead"
+SLIDE_ERROR_LLM_NOT_CONFIGURED = "llm_not_configured"
+SLIDE_ERROR_LLM_TIMEOUT = "llm_timeout"
+SLIDE_ERROR_LLM_OUTPUT_INVALID = "llm_output_invalid"
+SLIDE_ERROR_INTERNAL = "internal_error"
+
+# StructuredChatClient 把供应商异常包成 InvalidModelOutputError 抛出，
+# 超时只能沿 __cause__ 链按类名辨认（openai 的 APITimeoutError 不一定可导入）
+_TIMEOUT_ERROR_NAMES = {
+    "APITimeoutError",
+    "TimeoutError",
+    "AsyncTimeoutError",
+    "ReadTimeout",
+    "ConnectTimeout",
+}
+
+
+def classify_generation_error(error: BaseException) -> str:
+    """把单页生成异常压成机器可读的错误码（口径见 ADR-0001）。"""
+    if isinstance(error, LLMNotConfiguredError):
+        return SLIDE_ERROR_LLM_NOT_CONFIGURED
+    probe: BaseException | None = error
+    for _ in range(8):  # 防御性深度上限，正常链条不超过 3 层
+        if probe is None:
+            break
+        if probe.__class__.__name__ in _TIMEOUT_ERROR_NAMES:
+            return SLIDE_ERROR_LLM_TIMEOUT
+        probe = probe.__cause__
+    if isinstance(error, InvalidModelOutputError):
+        return SLIDE_ERROR_LLM_OUTPUT_INVALID
+    return SLIDE_ERROR_INTERNAL
+
+
+def _as_utc(moment: datetime) -> datetime:
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=UTC)
+    return moment
+
+
+def is_stuck_generating(
+    status: str, started_at: datetime | None, *, now: datetime | None = None
+) -> bool:
+    """generating 且开始时间早于阈值。started_at 缺失视为不可判定（历史脏行）。"""
+    if status != "generating" or started_at is None:
+        return False
+    moment = now or datetime.now(UTC)
+    return moment - _as_utc(started_at) > STUCK_GENERATING_AFTER
+
+
+async def reconcile_stuck_slides(session: AsyncSession, project: Project) -> bool:
+    """对账卡死的 generating 页并复位；返回是否发生复位。
+
+    GET 读路径也会调用（副作用换真终态，见 ADR-0001）；因此本函数自带 commit，
+    保证纯读入口的复位也能落库。project.status 仅在无存留 generating 页时归位。
+    """
+    slides = await load_slides(session, project.id)
+    changed = False
+    for slide in slides:
+        if not is_stuck_generating(slide.status, slide.started_at):
+            continue
+        slide.status = "failed"
+        slide.error = STUCK_PUBLIC_ERROR
+        slide.error_code = SLIDE_ERROR_WORKER_DEAD
+        changed = True
+
+    if not changed:
+        return False
+
+    if not any(slide.status == "generating" for slide in slides):
+        if project.status == "generating":
+            status = deck_status(slides)
+            project.status = "ready" if status == "ready" else "outline_ready"
+    await session.commit()
+    return True
+
+
+def reconcile_stuck_outline(outline: ProjectOutline) -> bool:
+    """outline 版对账：原地复位，由调用方决定提交（在既有事务里顺带落库）。"""
+    if not is_stuck_generating(outline.status, outline.started_at):
+        return False
+    outline.status = "failed"
+    outline.error = STUCK_PUBLIC_ERROR
+    return True

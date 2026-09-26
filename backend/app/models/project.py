@@ -115,6 +115,8 @@ class ProjectOutline(Base):
     job_id: Mapped[str | None] = mapped_column(String(100))
     input_signature: Mapped[str | None] = mapped_column(String(64))
     error: Mapped[str | None] = mapped_column(Text)
+    # 进入 generating 的时刻；惰性对账判定 worker 死亡用（ADR-0001）
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

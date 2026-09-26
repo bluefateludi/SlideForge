@@ -52,6 +52,11 @@ class Slide(Base):
     speaker_notes: Mapped[str | None] = mapped_column(Text)
     issues: Mapped[list[dict]] = mapped_column(JSONB, nullable=False, default=list)
     error: Mapped[str | None] = mapped_column(Text)
+    # 机器可读失败分类（worker_dead / llm_not_configured / llm_output_invalid /
+    # llm_timeout / internal_error），口径独立于 observability，见 ADR-0001
+    error_code: Mapped[str | None] = mapped_column(String(32))
+    # 进入 generating 的时刻；惰性对账用它判定 worker 死亡（ADR-0001）
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # 乐观锁：AI 局部修改与人工编辑提交时带上它，不一致即判冲突
     revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

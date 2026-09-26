@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -22,6 +23,7 @@ from app.observability import context
 from app.observability.recorder import finish_trace, span
 from app.schemas.deck import DeckEvent
 from app.services.deck import (
+    classify_generation_error,
     clear_cancel,
     deck_events,
     deck_status,
@@ -148,7 +150,9 @@ async def _generate_one(
             )
         except Exception as error:
             # span 上下文管理器会把异常记为 failed 并透传，这里捕获转公开错误
-            await _save_failed(slide_id, _public_error(error))
+            await _save_failed(
+                slide_id, _public_error(error), error_code=classify_generation_error(error)
+            )
             await _publish(
                 project_id, "slide_failed", f"第 {page.position} 页生成失败", slide_id, page
             )
@@ -301,6 +305,9 @@ async def _mark_generating(slide_id: uuid.UUID) -> bool:
             return False
         slide.status = "generating"
         slide.error = None
+        slide.error_code = None
+        # 进入 generating 的时刻；惰性对账判死 worker 用（ADR-0001）
+        slide.started_at = datetime.now(UTC)
         await session.commit()
         return True
 
@@ -338,13 +345,14 @@ async def _save_ready(
         await session.commit()
 
 
-async def _save_failed(slide_id: uuid.UUID, message: str) -> None:
+async def _save_failed(slide_id: uuid.UUID, message: str, *, error_code: str | None = None) -> None:
     async with async_session_factory() as session:
         slide = await session.get(Slide, slide_id, with_for_update=True)
         if slide is None:
             return
         slide.status = "failed"
         slide.error = message
+        slide.error_code = error_code
         await session.commit()
 
 
