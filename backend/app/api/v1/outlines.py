@@ -14,7 +14,7 @@ from app.api.v1.projects import OwnedProject
 from app.core.db import get_session
 from app.domain.layout import load_layouts
 from app.models.project import Project, ProjectOutline
-from app.observability.recorder import start_trace
+from app.observability.recorder import finish_trace, start_trace
 from app.schemas.outline import (
     OutlineEvent,
     OutlineGenerateAccepted,
@@ -116,36 +116,39 @@ async def generate_outline(
     outline.started_at = datetime.now(UTC)
     await session.commit()
 
+    # trace 先建、入队一次带 trace_id（#37）：arq 对已存在 _job_id 的二次入队
+    # 是空操作，旧实现「先入队再补 trace_id」在生产队列上永远送不到 worker；
+    # 队列挂掉的收口在下方 except 里显式 finish_trace，不留孤儿 running trace
+    trace_id = await start_trace(kind="outline", project_id=project.id, job_id=job_id)
     try:
         job = await queue.enqueue_job(
             "generate_outline",
             str(project.id),
             job_id,
+            str(trace_id) if trace_id is not None else None,
             _job_id=job_id,
         )
     except RedisError as error:
         outline.status = "failed"
         outline.error = "任务队列暂时不可用"
         await session.commit()
+        if trace_id is not None:
+            await finish_trace(
+                trace_id,
+                "failed",
+                error_code="enqueue_failed",
+                error_message="任务队列暂时不可用",
+            )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="任务队列暂时不可用",
         ) from error
 
     if job is None:
+        if trace_id is not None:
+            # 同 _job_id 的任务已在队列：新建的 trace 无任务会跑，直接收口
+            await finish_trace(trace_id, "cancelled", error_code="duplicate_job")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="任务已存在")
-
-    # enqueue 成功后才建 trace：队列挂时不会留下孤儿 running trace
-    trace_id = await start_trace(kind="outline", project_id=project.id, job_id=job_id)
-    if trace_id is not None:
-        # trace_id 作为新增位置参数传给 worker，用于终态收口
-        await queue.enqueue_job(
-            "generate_outline",
-            str(project.id),
-            job_id,
-            str(trace_id),
-            _job_id=job_id,
-        )
 
     await publish_outline_event(
         project.id,

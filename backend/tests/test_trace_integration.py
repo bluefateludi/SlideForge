@@ -126,13 +126,62 @@ async def test_outline_api_creates_running_trace(client: AsyncClient, queue: Fak
     assert rows[0].kind == "outline"
     assert rows[0].status == "running"
     assert rows[0].job_id == body["job_id"]
-    # trace_id 作为第三个位置参数传给 worker（trace 创建后的第二次 enqueue）
-    args, kwargs = queue.calls[-1]
+    # #37：单次入队即携带 trace_id（旧的「先入队再二次补投」在真实 arq 上
+    # 被 _job_id 去重吞掉，trace_id 永远到不了 worker）
+    assert len(queue.calls) == 1
+    args, kwargs = queue.calls[0]
     assert args[0] == "generate_outline"
     assert args[1] == project["id"]
     assert args[2] == body["job_id"]
     assert args[3] == body["trace_id"]
     assert kwargs["_job_id"] == body["job_id"]
+
+
+async def test_outline_enqueue_failure_closes_trace(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """入队失败（Redis 挂）：outline 落 failed，trace 显式收口不留孤儿 running（#37）。"""
+    from redis.exceptions import RedisError
+
+    class BrokenQueue:
+        async def enqueue_job(self, *args, **kwargs):
+            raise RedisError("queue down")
+
+    async def ignore(*_args, **_kwargs) -> None:
+        pass
+
+    monkeypatch.setattr("app.api.v1.outlines.publish_outline_event", ignore)
+    app.dependency_overrides[get_queue] = lambda: BrokenQueue()
+    try:
+        headers = await _sign_up(client)
+        project = (
+            await client.post(
+                "/api/v1/projects",
+                json={"title": "enqueue 失败", "page_count": 5},
+                headers=headers,
+            )
+        ).json()
+        await client.post(
+            f"/api/v1/projects/{project['id']}/sources",
+            json={"kind": "topic", "content": "把内部工具沉淀为平台能力"},
+            headers=headers,
+        )
+        response = await client.post(
+            f"/api/v1/projects/{project['id']}/outline/generate", headers=headers
+        )
+        assert response.status_code == 503
+
+        rows = await _traces(uuid.UUID(project["id"]))
+        assert len(rows) == 1
+        assert rows[0].status == "failed"
+        assert rows[0].error_code == "enqueue_failed"
+
+        record = await _project_row(uuid.UUID(project["id"]))
+        assert record.outline is not None
+        assert record.outline.status == "failed"
+        assert record.outline.error == "任务队列暂时不可用"
+    finally:
+        app.dependency_overrides.pop(get_queue, None)
 
 
 async def test_outline_worker_finishes_trace_succeeded(
