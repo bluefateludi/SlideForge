@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from arq.connections import ArqRedis
@@ -21,6 +22,7 @@ from app.schemas.outline import (
     OutlineRevisionRequest,
     OutlineUpdate,
 )
+from app.services.deck import reconcile_stuck_outline
 from app.services.outline_inputs import migrate_outline_signature, outline_input_matches
 from app.services.outline_progress import outline_events, publish_outline_event
 
@@ -65,8 +67,17 @@ def _validate_pages(project: Project, pages: list) -> None:
 
 
 @router.get("", response_model=OutlinePublic)
-async def get_outline(project: OwnedProject) -> ProjectOutline:
-    return _outline_or_404(project)
+async def get_outline(
+    project: OwnedProject,
+    session: SessionDep,
+) -> ProjectOutline:
+    # 读路径对账（ADR-0001）：卡死的 generating 大纲在用户看到状态前复位成 failed
+    outline = _outline_or_404(project)
+    if reconcile_stuck_outline(outline):
+        await session.commit()
+        # commit 会过期属性；响应直接序列化 ORM 对象，须先刷新避免-greenlet 惰性加载
+        await session.refresh(outline)
+    return outline
 
 
 @router.post(
@@ -84,6 +95,10 @@ async def generate_outline(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="请先添加可用于生成大纲的输入材料",
         )
+    # 先对账卡死的大纲（ADR-0001）：worker 死亡留下的超时 generating 在此复位，
+    # 下面的守卫只拦真正的活任务
+    if project.outline is not None and reconcile_stuck_outline(project.outline):
+        await session.commit()
     if project.outline is not None and project.outline.status == "confirmed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="请先取消确认")
     if project.outline is not None and project.outline.status == "generating":
@@ -97,6 +112,8 @@ async def generate_outline(
     outline.status = "generating"
     outline.error = None
     outline.job_id = job_id
+    # 进入 generating 的时刻；惰性对账判死 worker 用（ADR-0001）
+    outline.started_at = datetime.now(UTC)
     await session.commit()
 
     try:

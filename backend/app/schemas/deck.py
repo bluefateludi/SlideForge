@@ -31,6 +31,8 @@ class SlidePublic(BaseModel):
     speaker_notes: str | None
     issues: list[StructureIssue]
     error: str | None
+    # 机器可读失败分类（ADR-0001）：worker_dead / llm_* / internal_error
+    error_code: str | None = None
     revision: int
     updated_at: datetime
 
