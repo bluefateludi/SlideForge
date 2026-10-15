@@ -14,11 +14,10 @@ from app.core.db import async_session_factory
 from app.eval.gate import (
     collect_gate_metrics,
     compare_with_baseline,
-    latest_run_metrics,
+    latest_run_report,
     load_baseline,
     p95_elapsed,
     write_baseline,
-    write_baseline_from_metrics,
 )
 from app.eval.report import CaseRow, EvalReport, RunSummary
 from app.models.eval_run import EvalRun
@@ -38,7 +37,22 @@ def _report(
     elapsed: list[float] | None = None,
 ) -> EvalReport:
     rows = [
-        CaseRow(case_id=f"c{i}", ok=True, stage="done", elapsed_seconds=seconds)
+        CaseRow(
+            case_id=f"c{i}",
+            ok=True,
+            stage="done",
+            elapsed_seconds=seconds,
+            schema_valid=True,
+            expected_pages=2,
+            ready_pages=2,
+            pages_met=True,
+            judge_score=judge,
+            judge_coverage=1 if judge is not None else None,
+            measurement_complete=True,
+            cost_configured=True,
+            tokens_source="trace",
+            observed_models=["test-model"],
+        )
         for i, seconds in enumerate(elapsed or [60.0] * 20)
     ]
     return EvalReport(
@@ -49,6 +63,9 @@ def _report(
             schema_scored_cases=schema_scored,
             schema_valid_rate=schema_valid_rate,
             export_succeeded_cases=export_cases,
+            pages_scored_cases=20,
+            pages_met_rate=1,
+            avg_judge_coverage=1,
             avg_judge_score=judge,
             avg_prompt_tokens=prompt,
             avg_completion_tokens=completion,
@@ -56,6 +73,14 @@ def _report(
             total_cost=total_cost,
         ),
         rows=rows,
+        run_context={
+            "source_run_id": "00000000-0000-0000-0000-000000000001",
+            "code_revision": "a" * 40,
+            "generation_models": ["test-model"],
+            "judge_model": "test-judge",
+            "prices": {"prompt_per_mtok": 1, "completion_per_mtok": 1, "image_per_unit": 0},
+            "runtime": {"api_base": "http://localhost"},
+        },
     )
 
 
@@ -129,28 +154,24 @@ class TestCompare:
         )
         assert over_limit.passed is False
 
-    def test_zero_baseline_ratio_metric_skipped(self) -> None:
-        # 旧基线跑在 token 恒 0 时期：非零真值不应被判成回归，而是跳过
+    def test_true_zero_baseline_is_not_skipped(self) -> None:
         base = _baseline_dict(_report(prompt=0.0, completion=0.0, avg_cost=0.0, total_cost=0.0))
         result = compare_with_baseline(
             _report(prompt=999.0, avg_cost=1.0),
             cases_version="cases-test",
             baseline=base,
         )
-        assert result.passed is True
-        skipped = {check.name for check in result.checks if check.skipped}
-        assert {"avg_prompt_tokens", "avg_completion_tokens", "avg_cost", "total_cost"} <= skipped
-
-    def test_none_metric_fails_when_baseline_has_value(self) -> None:
-        # 基线有 judge 分而本轮没有（如忘配 judge）：无法验证质量 → 判负
-        base = _baseline_dict(_report(judge=8.0))
-        current = _report(judge=None)
-        result = compare_with_baseline(current, cases_version="cases-test", baseline=base)
-        judge_check = next(check for check in result.checks if check.name == "avg_judge_score")
-        assert judge_check.passed is False
-        assert judge_check.skipped is False
-        assert "无法验证" in judge_check.detail
         assert result.passed is False
+        assert not any(check.skipped for check in result.checks)
+
+    def test_missing_judge_rejects_incomplete_report(self) -> None:
+        result = compare_with_baseline(
+            _report(judge=None),
+            cases_version="cases-test",
+            baseline=_baseline_dict(_report()),
+        )
+        assert result.passed is False
+        assert "评审样本不完整" in result.reason
 
     def test_version_mismatch_refuses(self) -> None:
         base = _baseline_dict(_report(), version="cases-old")
@@ -181,18 +202,12 @@ class TestBaselineFile:
         no_version.write_text('{"metrics": {}}', encoding="utf-8")
         assert load_baseline(no_version) is None
 
-    def test_write_from_metrics_keeps_source(self, tmp_path) -> None:
+    def test_source_run_is_saved(self, tmp_path) -> None:
         path = tmp_path / "baseline.json"
-        write_baseline_from_metrics(
-            path,
-            cases_version="cases-x",
-            metrics={"success_rate": 1.0},
-            source="eval_runs:test",
+        write_baseline(path, _report(), cases_version="cases-x")
+        assert load_baseline(path)["provenance"]["source_run_id"] == (
+            "00000000-0000-0000-0000-000000000001"
         )
-        loaded = load_baseline(path)
-        assert loaded is not None
-        assert loaded["source"] == "eval_runs:test"
-        assert loaded["metrics"]["success_rate"] == 1.0
 
 
 @pytest.mark.asyncio
@@ -239,9 +254,10 @@ async def test_latest_run_metrics_from_db() -> None:
         await session.commit()
     # 用干净 session 查询（与脚本路径一致）
     async with async_session_factory() as session:
-        found = await latest_run_metrics(session, cases_version=version)
+        found = await latest_run_report(session, cases_version=version)
         assert found is not None
-        run_id, metrics = found
+        run_id, report = found
+        metrics = collect_gate_metrics(report)
         assert run_id == str(run.id)
         assert metrics["success_rate"] == 1.0
         assert metrics["avg_cost"] == 0.1
@@ -257,5 +273,5 @@ async def test_latest_run_metrics_from_db() -> None:
 async def test_latest_run_metrics_missing_version_returns_none() -> None:
     async with async_session_factory() as session:
         version = f"cases-none-{uuid.uuid4().hex[:8]}"
-        found = await latest_run_metrics(session, cases_version=version)
+        found = await latest_run_report(session, cases_version=version)
     assert found is None

@@ -15,11 +15,11 @@
   EVAL_EXPORT_TIMEOUT_SECONDS / EVAL_POLL_INTERVAL_SECONDS   各阶段超时
   EVAL_NOTE        本次 run 的备注（写入 eval_runs.note）
   EVAL_SKIP_DB     非空时跳过入库（报告只打印，行为退回 eval#3）
-  EVAL_GATE        非空时等价 --gate（Makefile 目标的底层开关）
+  EVAL_GATE        非空时等价 --gate；与两种立基线模式互斥
 
 退出码：0 正常；1 门禁未通过 / 未立基线 / 基线操作失败；2 环境性错误。
-门禁口径见 app/eval/gate.py：成功率/Schema 率/导出零容差，judge 容差
--0.5，token/cost/P95 上限 ×1.3；cases_version 不一致拒绝对比。
+门禁先检查基线版本与数据完整性，再按文件中的数值规则比较；
+默认评分容差 -0.5，token/cost/P95 上限 ×1.3。详见 docs/eval-baseline.md。
 真实全量评测由维护者本地发起。跑完报告后直连数据库写入 eval_runs
 （async_session_factory）：脚本本就在后端代码库内、与 API 共用一套模型
 与迁移，经 API 中转只多一层认证与校验，无收益。
@@ -31,7 +31,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 # 允许直接 `python scripts/run_eval.py` 时找到 app 包
@@ -48,10 +51,10 @@ from app.eval.gate import (  # noqa: E402
     BASELINE_PATH,
     compare_with_baseline,
     format_gate_report,
-    latest_run_metrics,
+    latest_run_report,
     load_baseline,
+    validate_baseline,
     write_baseline,
-    write_baseline_from_metrics,
 )
 from app.eval.persistence import (  # noqa: E402
     compute_cases_version,
@@ -133,14 +136,35 @@ async def _run_with_smoke(runner, cases):
     return [by_id[case.id] for case in cases]
 
 
-async def _main(*, gate: bool = False, baseline: bool = False, cases_filter: str = "") -> int:
+async def _main(
+    *,
+    gate: bool = False,
+    baseline: bool = False,
+    cases_filter: str = "",
+    baseline_path: Path = BASELINE_PATH,
+) -> int:
     api_base = os.environ.get("EVAL_API_BASE", DEFAULT_API_BASE).rstrip("/")
     base = api_base if api_base.endswith("/api/v1") else _with_v1(api_base)
     cases = load_cases()
     if cases_filter:
         cases = filter_cases(cases, cases_filter)
+    cases_version = compute_cases_version(cases)
+    baseline_data = None
+    if gate:
+        baseline_data = load_baseline(baseline_path)
+        try:
+            if baseline_data is None:
+                raise ValueError("基线缺失、旧格式或待重建；请确认完整新报告后重立基线")
+            validate_baseline(baseline_data, cases_version=cases_version)
+        except ValueError as error:
+            print(f"[gate] {error}", file=sys.stderr)
+            return 1
+    if baseline and os.environ.get("EVAL_SKIP_DB", "").strip():
+        print("[baseline] 跳过 Trace 查询时不能建立基线", file=sys.stderr)
+        return 1
     print(f"[eval] 题集 {len(cases)} 题，API：{base}", file=sys.stderr)
 
+    run_context = _capture_run_context(base)
     judge = _build_judge()
     # trust_env=False：评测只面向本地 dev 栈，明确忽略系统/环境代理，
     # 避免本机代理把 127.0.0.1 流量劫走后返回 502。
@@ -159,6 +183,7 @@ async def _main(*, gate: bool = False, baseline: bool = False, cases_filter: str
         score = await score_case(case, item, judge)
         results.append((case.id, case.expected_pages, item, score))
     report = build_report(results)
+    report.run_context = run_context
     # obs#4：入库前按 trace_id join spans，补真实 token 与分段耗时；
     # 打印的报告因此含真实值。join 只在能连库时做（EVAL_SKIP_DB 同款开关
     # 稍后仍会跳过写入，但报告侧数值优先补齐）。
@@ -175,64 +200,92 @@ async def _main(*, gate: bool = False, baseline: bool = False, cases_filter: str
                 f"[eval] trace join 失败（token 按查不到处理）：{type(error).__name__}: {error}",
                 file=sys.stderr,
             )
+    report.run_context["generation_models"] = sorted(
+        {model for row in report.rows for model in row.observed_models}
+    )
+    if compute_cases_version(cases) != cases_version:
+        print("[eval] 材料在评测期间发生变化，拒绝保存和比较", file=sys.stderr)
+        return 1
     sys.stdout.write(format_report(report))
-    await _persist_report(report, cases, traces_joined=joined)
-    cases_version = compute_cases_version(cases)
+    await _persist_report(report, cases_version=cases_version, traces_joined=joined)
 
     if baseline:
-        if os.environ.get("EVAL_SKIP_DB", "").strip():
-            print("[baseline] EVAL_SKIP_DB 下指标未 join trace，拒绝立基线", file=sys.stderr)
+        try:
+            write_baseline(baseline_path, report, cases_version=cases_version)
+        except ValueError as error:
+            print(f"[baseline] 拒绝覆盖基线：{error}", file=sys.stderr)
             return 1
-        write_baseline(BASELINE_PATH, report, cases_version=cases_version)
-        print(
-            f"[baseline] 已写入 {BASELINE_PATH}（cases_version={cases_version}）",
-            file=sys.stderr,
-        )
-
+        print(f"[baseline] 已写入 {baseline_path}", file=sys.stderr)
     if gate:
-        return _run_gate(report, cases_version=cases_version)
+        gate_report = compare_with_baseline(
+            report,
+            cases_version=cases_version,
+            baseline=baseline_data,
+        )
+        sys.stdout.write(format_gate_report(gate_report))
+        return 0 if gate_report.passed else 1
     return 0
 
 
-def _run_gate(report, *, cases_version: str) -> int:
-    """门禁：对比 baseline.json，打印报告并给退出码（eval#6）。"""
-    baseline_data = load_baseline(BASELINE_PATH)
-    if baseline_data is None:
-        print(
-            f"[gate] 未找到合法基线（{BASELINE_PATH}）：先跑一轮评测后"
-            " `uv run python scripts/run_eval.py --baseline`，或 make eval-baseline 从库里取",
-            file=sys.stderr,
-        )
-        return 1
-    gate_report = compare_with_baseline(report, cases_version=cases_version, baseline=baseline_data)
-    sys.stdout.write(format_gate_report(gate_report))
-    return 0 if gate_report.passed else 1
+def _capture_run_context(api_base: str) -> dict:
+    settings = get_settings()
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=BACKEND_ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        revision = ""
+    return {
+        "source_run_id": str(uuid.uuid4()),
+        "code_revision": revision,
+        "generation_models": [],  # 完成后从实际 Trace 补齐，不猜远端模型。
+        "judge_model": settings.llm_model,
+        "prices": {
+            "prompt_per_mtok": settings.llm_price_per_mtok_prompt,
+            "completion_per_mtok": settings.llm_price_per_mtok_completion,
+            "image_per_unit": settings.image_price_per_unit,
+        },
+        "runtime": {
+            "api_base": api_base,
+            "started_at": datetime.now(UTC).isoformat(),
+            "harness_slide_concurrency": settings.slide_concurrency,
+            "harness_thinking_enabled": settings.llm_thinking_enabled,
+            "harness_llm_timeout_seconds": settings.llm_timeout_seconds,
+            "harness_image_provider": settings.image_provider,
+            "harness_image_model": settings.image_model,
+        },
+    }
 
 
-async def _baseline_from_db() -> int:
-    """零模型调用：从库里最近一次同题集版本的 run 重立基线。"""
+async def _baseline_from_db(*, cases_filter: str = "", baseline_path: Path = BASELINE_PATH) -> int:
+    """只读取当次持久化的来源，不用当前配置冒充历史测量。"""
     cases = load_cases()
+    if cases_filter:
+        cases = filter_cases(cases, cases_filter)
     cases_version = compute_cases_version(cases)
     from app.core.db import async_session_factory
 
-    async with async_session_factory() as session:
-        found = await latest_run_metrics(session, cases_version=cases_version)
-    if found is None:
-        print(
-            f"[baseline] 库里没有 cases_version={cases_version} 的 run，"
-            "先跑一轮 make eval 再立基线",
-            file=sys.stderr,
-        )
+    try:
+        async with async_session_factory() as session:
+            found = await latest_run_report(session, cases_version=cases_version)
+        if found is None:
+            raise ValueError("没有同版本报告；需在维护者授权后运行真实评测")
+        run_id, report = found
+        if report.run_context.get("source_run_id") != run_id:
+            raise ValueError("历史报告缺失或不匹配的运行来源，不能重建正式基线")
+        write_baseline(baseline_path, report, cases_version=cases_version)
+    except (ValueError, OSError) as error:
+        print(f"[baseline] 拒绝覆盖基线：{error}", file=sys.stderr)
         return 1
-    run_id, metrics = found
-    write_baseline_from_metrics(
-        BASELINE_PATH, cases_version=cases_version, metrics=metrics, source=f"eval_runs:{run_id}"
-    )
-    print(f"[baseline] 已写入 {BASELINE_PATH}（取自 run {run_id}）", file=sys.stderr)
+    print(f"[baseline] 已写入 {baseline_path}（取自 run {run_id}）", file=sys.stderr)
     return 0
 
 
-async def _persist_report(report, cases, *, traces_joined: bool) -> None:
+async def _persist_report(report, *, cases_version: str, traces_joined: bool) -> None:
     """报告落库（eval#4）：报告已打印在先，写库失败只报错不影响其输出。"""
     if os.environ.get("EVAL_SKIP_DB", "").strip():
         print("[eval] EVAL_SKIP_DB 已设置，跳过入库", file=sys.stderr)
@@ -242,7 +295,7 @@ async def _persist_report(report, cases, *, traces_joined: bool) -> None:
 
     run = report_to_run(
         report,
-        cases_version=compute_cases_version(cases),
+        cases_version=cases_version,
         note=_compose_note(traces_joined),
     )
     try:
@@ -272,24 +325,36 @@ def _with_v1(api_base: str) -> str:
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="SlideForge 评测入口（口径见模块 docstring）")
+    parser = argparse.ArgumentParser(description="SlideForge 固定题集评测")
     parser.add_argument("--cases", default="", help="逗号分隔的题号子集；缺省全量")
-    parser.add_argument("--gate", action="store_true", help="跑完后做回归门禁（等价 EVAL_GATE=1）")
-    parser.add_argument("--baseline", action="store_true", help="以本轮结果重立基线 baseline.json")
-    parser.add_argument(
-        "--baseline-from-db",
-        action="store_true",
-        help="不跑评测：从库里最近一次同题集版本的 run 立基线（零模型调用）",
-    )
-    return parser.parse_args(argv)
+    parser.add_argument("--baseline-file", type=Path, default=BASELINE_PATH, help="基线文件路径")
+    parser.add_argument("--gate", action="store_true", help="与已有基线比较")
+    parser.add_argument("--baseline", action="store_true", help="以完整本轮结果建立基线")
+    parser.add_argument("--baseline-from-db", action="store_true", help="从完整历史报告建立基线")
+    args = parser.parse_args(argv)
+    args.gate = args.gate or bool(os.environ.get("EVAL_GATE", "").strip())
+    if sum((args.gate, args.baseline, args.baseline_from_db)) > 1:
+        parser.error("门禁、建立基线、从数据库建立基线三种模式互斥（包括 EVAL_GATE）")
+    return args
 
 
-def main() -> int:
-    args = _parse_args()
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
     if args.baseline_from_db:
-        return asyncio.run(_baseline_from_db())
-    gate = args.gate or bool(os.environ.get("EVAL_GATE", "").strip())
-    return asyncio.run(_main(gate=gate, baseline=args.baseline, cases_filter=args.cases))
+        return asyncio.run(
+            _baseline_from_db(
+                cases_filter=args.cases,
+                baseline_path=args.baseline_file,
+            )
+        )
+    return asyncio.run(
+        _main(
+            gate=args.gate,
+            baseline=args.baseline,
+            cases_filter=args.cases,
+            baseline_path=args.baseline_file,
+        )
+    )
 
 
 if __name__ == "__main__":
