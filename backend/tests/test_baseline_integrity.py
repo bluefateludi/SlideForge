@@ -143,3 +143,58 @@ def test_baseline_roundtrip_preserves_provenance_and_diagnostics(tmp_path):
     assert "hallucination_rate" in data["metrics"]
     assert "retry_slide_rate" in data["metrics"]
     assert "hallucination_rate" not in data["rules"]
+
+
+@pytest.mark.asyncio
+async def test_database_rebuild_uses_saved_context_not_current_settings():
+    from app.eval.gate import latest_run_report
+    from app.eval.persistence import report_to_run
+
+    report = valid_report()
+    stored = report_to_run(report, cases_version="cases-v2-test")
+
+    class RunStore:
+        async def execute(self, statement):
+            return self
+
+        def scalar_one_or_none(self):
+            return stored
+
+    run_id, restored = await latest_run_report(RunStore(), cases_version="cases-v2-test")
+    assert run_id == report.run_context["source_run_id"]
+    baseline = build_baseline(restored, cases_version="cases-v2-test")
+    assert baseline["provenance"] == report.run_context
+    assert baseline["metrics"]["export_succeeded_cases"] == 2
+    assert restored.rows[0].measurement_complete is True
+
+
+@pytest.mark.asyncio
+async def test_legacy_database_report_cannot_become_a_baseline():
+    from app.eval.gate import latest_run_report
+    from app.eval.persistence import report_to_run
+
+    report = valid_report()
+    stored = report_to_run(report, cases_version="cases-v2-test")
+    for row in stored.rows:
+        row.pop("run_context")
+
+    class RunStore:
+        async def execute(self, statement):
+            return self
+
+        def scalar_one_or_none(self):
+            return stored
+
+    _, restored = await latest_run_report(RunStore(), cases_version="cases-v2-test")
+    with pytest.raises(ValueError):
+        build_baseline(restored, cases_version="cases-v2-test")
+
+
+def test_zero_p95_is_rejected_before_a_baseline_can_be_loaded(tmp_path):
+    import json
+
+    data = build_baseline(valid_report(), cases_version="cases-v2-test")
+    data["metrics"]["p95_elapsed_seconds"] = 0
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    assert load_baseline(path) is None

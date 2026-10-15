@@ -126,6 +126,8 @@ class Baseline(BaseModel):
                 raise ValueError(f"{name} 指标必须为非负有限数")
             if name in _RATE_METRICS and value > 1:
                 raise ValueError(f"{name} 必须在 0 到 1 之间")
+        if self.metrics["p95_elapsed_seconds"] <= 0:
+            raise ValueError("P95 耗时必须为正有限数")
         if self.metrics["avg_judge_score"] > 10:
             raise ValueError("内容评分超过 10")
         if self.metrics["export_succeeded_cases"] > self.samples.total_cases:
