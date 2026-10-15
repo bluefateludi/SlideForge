@@ -33,6 +33,9 @@ _DETAIL_KEYS = (
     "expected_pages",
     "pages_met",
     "schema_valid",
+    "export_succeeded",
+    "fabricated_numbers",
+    "total_numbers",
     "judge_coverage",
     "judge_score",
     "judge_error",
@@ -44,6 +47,10 @@ _DETAIL_KEYS = (
     "prompt_tokens",
     "completion_tokens",
     "tokens_source",
+    "measurement_complete",
+    "measurement_issues",
+    "cost_configured",
+    "observed_models",
     "outline_trace_id",
     "deck_trace_id",
     "outline_duration_ms",
@@ -55,28 +62,32 @@ _DETAIL_KEYS = (
 
 
 def compute_cases_version(cases: list[EvalCase]) -> str:
-    """题集内容指纹：cases-<sha256 前 12 位>。
-
-    题集是仓库内静态资产，无显式版本号；对「每题的输入/期望页数/
-    requirements/类别/材料名」的规范化 JSON 取哈希，题面一变指纹就变，
-    run 之间的分数只有在同指纹下才可比。前缀标明生成规则，区别于
-    未来的显式版本方案。
-    """
-    payload = [
-        {
-            "id": case.id,
-            "input": case.input,
-            "expected_pages": case.expected_pages,
-            "requirements": case.requirements,
-            "category": case.category,
-            "source": case.source.name if case.source else None,
-        }
-        for case in cases
-    ]
+    """题集 v2 身份：语义字段和材料原始字节；不受加载顺序或绝对路径影响。"""
+    payload = []
+    for case in sorted(cases, key=lambda item: item.id):
+        source_hash = None
+        if case.category == "documents":
+            if case.source_path is None:
+                raise ValueError(f"{case.id} 材料尚未加载")
+            try:
+                source_hash = hashlib.sha256(case.source_path.read_bytes()).hexdigest()
+            except OSError as error:
+                raise ValueError(f"{case.id} 材料无法读取：{case.source}") from error
+        payload.append(
+            {
+                "id": case.id,
+                "input": case.input,
+                "expected_pages": case.expected_pages,
+                "requirements": case.requirements,
+                "category": case.category,
+                "source": case.source.as_posix() if case.source else None,
+                "source_sha256": source_hash,
+            }
+        )
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return f"cases-{digest[:12]}"
+    return f"cases-v2-{digest[:12]}"
 
 
 def row_to_detail(row: CaseRow, category: str) -> dict[str, Any]:
@@ -134,6 +145,10 @@ async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
         row.export_duration_ms = joined.export_duration_ms
         row.ai_image_count = joined.ai_image_count
         row.cost = joined.total_cost
+        row.measurement_complete = joined.measurement_complete
+        row.measurement_issues = joined.measurement_issues
+        row.cost_configured = joined.cost_configured
+        row.observed_models = joined.observed_models
     report.summary = aggregate(report.rows)
 
 
@@ -155,8 +170,10 @@ def report_to_run(
         row_to_detail(row, categories.get(row.case_id, row.case_id.split("/")[0]))
         for row in report.rows
     ]
+    for detail in details:
+        detail["run_context"] = report.run_context
     s = report.summary
-    return EvalRun(
+    run = EvalRun(
         cases_version=cases_version,
         total_cases=s.total_cases,
         ok_cases=s.ok_cases,
@@ -189,6 +206,11 @@ def report_to_run(
         category_scores=build_category_scores(details),
         note=note,
     )
+    if report.run_context.get("source_run_id"):
+        import uuid
+
+        run.id = uuid.UUID(report.run_context["source_run_id"])
+    return run
 
 
 async def save_run(session: AsyncSession, run: EvalRun) -> EvalRun:

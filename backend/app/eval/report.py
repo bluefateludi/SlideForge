@@ -62,6 +62,11 @@ class CaseRow(BaseModel):
     completion_tokens: int = 0
     # "trace"：spans 聚合的真实值；"unavailable"：查不到（按 0 展示）
     tokens_source: str = "unavailable"
+    # 展示层可降级为 0；门禁必须检查完整性，不能把降级 0 当测量值。
+    measurement_complete: bool = False
+    measurement_issues: list[str] = Field(default_factory=list)
+    cost_configured: bool = False
+    observed_models: list[str] = Field(default_factory=list)
     outline_trace_id: str | None = None
     deck_trace_id: str | None = None
     outline_duration_ms: int = 0
@@ -119,6 +124,8 @@ class EvalReport(BaseModel):
 
     summary: RunSummary = Field(default_factory=RunSummary)
     rows: list[CaseRow] = Field(default_factory=list)
+    # 当次评测捕获的运行条件，随逐题 JSONB 留存，不用当前配置补造历史。
+    run_context: dict = Field(default_factory=dict)
 
 
 def build_row(
