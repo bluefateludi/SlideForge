@@ -33,6 +33,9 @@ _DETAIL_KEYS = (
     "expected_pages",
     "pages_met",
     "schema_valid",
+    "export_succeeded",
+    "fabricated_numbers",
+    "total_numbers",
     "judge_coverage",
     "judge_score",
     "judge_error",
@@ -44,6 +47,10 @@ _DETAIL_KEYS = (
     "prompt_tokens",
     "completion_tokens",
     "tokens_source",
+    "measurement_complete",
+    "measurement_issues",
+    "cost_configured",
+    "observed_models",
     "outline_trace_id",
     "deck_trace_id",
     "outline_duration_ms",
@@ -66,15 +73,17 @@ def compute_cases_version(cases: list[EvalCase]) -> str:
                 source_hash = hashlib.sha256(case.source_path.read_bytes()).hexdigest()
             except OSError as error:
                 raise ValueError(f"{case.id} 材料无法读取：{case.source}") from error
-        payload.append({
-            "id": case.id,
-            "input": case.input,
-            "expected_pages": case.expected_pages,
-            "requirements": case.requirements,
-            "category": case.category,
-            "source": case.source.as_posix() if case.source else None,
-            "source_sha256": source_hash,
-        })
+        payload.append(
+            {
+                "id": case.id,
+                "input": case.input,
+                "expected_pages": case.expected_pages,
+                "requirements": case.requirements,
+                "category": case.category,
+                "source": case.source.as_posix() if case.source else None,
+                "source_sha256": source_hash,
+            }
+        )
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
@@ -136,6 +145,10 @@ async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
         row.export_duration_ms = joined.export_duration_ms
         row.ai_image_count = joined.ai_image_count
         row.cost = joined.total_cost
+        row.measurement_complete = joined.measurement_complete
+        row.measurement_issues = joined.measurement_issues
+        row.cost_configured = joined.cost_configured
+        row.observed_models = joined.observed_models
     report.summary = aggregate(report.rows)
 
 
@@ -157,8 +170,10 @@ def report_to_run(
         row_to_detail(row, categories.get(row.case_id, row.case_id.split("/")[0]))
         for row in report.rows
     ]
+    for detail in details:
+        detail["run_context"] = report.run_context
     s = report.summary
-    return EvalRun(
+    run = EvalRun(
         cases_version=cases_version,
         total_cases=s.total_cases,
         ok_cases=s.ok_cases,
@@ -191,6 +206,11 @@ def report_to_run(
         category_scores=build_category_scores(details),
         note=note,
     )
+    if report.run_context.get("source_run_id"):
+        import uuid
+
+        run.id = uuid.UUID(report.run_context["source_run_id"])
+    return run
 
 
 async def save_run(session: AsyncSession, run: EvalRun) -> EvalRun:
