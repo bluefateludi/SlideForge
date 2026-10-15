@@ -55,28 +55,30 @@ _DETAIL_KEYS = (
 
 
 def compute_cases_version(cases: list[EvalCase]) -> str:
-    """题集内容指纹：cases-<sha256 前 12 位>。
-
-    题集是仓库内静态资产，无显式版本号；对「每题的输入/期望页数/
-    requirements/类别/材料名」的规范化 JSON 取哈希，题面一变指纹就变，
-    run 之间的分数只有在同指纹下才可比。前缀标明生成规则，区别于
-    未来的显式版本方案。
-    """
-    payload = [
-        {
+    """题集 v2 身份：语义字段和材料原始字节；不受加载顺序或绝对路径影响。"""
+    payload = []
+    for case in sorted(cases, key=lambda item: item.id):
+        source_hash = None
+        if case.category == "documents":
+            if case.source_path is None:
+                raise ValueError(f"{case.id} 材料尚未加载")
+            try:
+                source_hash = hashlib.sha256(case.source_path.read_bytes()).hexdigest()
+            except OSError as error:
+                raise ValueError(f"{case.id} 材料无法读取：{case.source}") from error
+        payload.append({
             "id": case.id,
             "input": case.input,
             "expected_pages": case.expected_pages,
             "requirements": case.requirements,
             "category": case.category,
-            "source": case.source.name if case.source else None,
-        }
-        for case in cases
-    ]
+            "source": case.source.as_posix() if case.source else None,
+            "source_sha256": source_hash,
+        })
     digest = hashlib.sha256(
         json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
     ).hexdigest()
-    return f"cases-{digest[:12]}"
+    return f"cases-v2-{digest[:12]}"
 
 
 def row_to_detail(row: CaseRow, category: str) -> dict[str, Any]:
