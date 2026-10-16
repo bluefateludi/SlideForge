@@ -1,4 +1,4 @@
-.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval eval-gate eval-baseline
+.PHONY: up down install fonts dev-api dev-worker dev-web migrate migration test lint gen-api regression eval eval-gate eval-baseline eval-edit
 
 up:
 	docker compose up -d
@@ -60,6 +60,10 @@ eval-gate:
 # 题集变更、单价配置、修完 #22/#32 这类影响指标的改动后都应重立。
 eval-baseline:
 	cd backend && uv run python scripts/run_eval.py --baseline-from-db
+
+# 固定初始页面，只有 ai-edit 会调用模型；本次不运行真实评测。
+eval-edit:
+	cd backend && uv run python scripts/run_edit_eval.py
 
 lint:
 	cd backend && uv run ruff check .

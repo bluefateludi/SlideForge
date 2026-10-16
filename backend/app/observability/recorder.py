@@ -153,6 +153,21 @@ async def finish_span(
         logger.warning("finish_span 落库失败（span=%s）", handle.span_id)
 
 
+async def annotate_span(handle: SpanHandle | None, attributes: dict) -> None:
+    """仅补充结构化测量证据；观测失败不影响节点输出。"""
+    if handle is None:
+        return
+    try:
+        async with async_session_factory() as session:
+            record = await session.get(Span, handle.span_id)
+            if record is not None:
+                current = record.attributes if isinstance(record.attributes, dict) else {}
+                record.attributes = {**current, **attributes}
+                await session.commit()
+    except Exception:
+        logger.warning("annotate_span 落库失败（span=%s）", handle.span_id)
+
+
 @asynccontextmanager
 async def span(name: str, span_kind: str, **attributes: Any):
     """同步便捷入口：进入即 start，异常时 finish(failed) 并透传异常。"""
@@ -206,6 +221,7 @@ def traced_node(
     span_kind: str = "node",
     *,
     attributes: Callable[[dict], dict] | None = None,
+    result_attributes: Callable[[dict], dict] | None = None,
 ):
     """LangGraph 节点协程的 span 包装（obs#2）。
 
@@ -225,8 +241,14 @@ def traced_node(
                     extra = None
             else:
                 extra = None
-            async with span(name, span_kind, **(extra or {})):
-                return await node(state)
+            async with span(name, span_kind, **(extra or {})) as handle:
+                result = await node(state)
+                if result_attributes is not None:
+                    try:
+                        await annotate_span(handle, result_attributes(result))
+                    except Exception:
+                        logger.warning("节点观测属性生成失败（name=%s）", name)
+                return result
 
         return wrapper
 

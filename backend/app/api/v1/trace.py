@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.models.user import User
+from app.observability.convergence import summarize_convergence
 from app.observability.cost import compute_cost
 from app.observability.models import Span, Trace
 from app.schemas.trace import (
@@ -147,6 +148,24 @@ async def get_metrics_summary(
     ).one()
     slide_success_rate = round(slide_succeeded / slide_total, 3) if slide_total else None
 
+    # 只拉页面任务与校验/修复证据；统一口径与评测报告一致。
+    evidence = (
+        (
+            await session.execute(
+                select(Span).where(
+                    span_in_window,
+                    (Span.span_kind == "task") | Span.name.in_(["slide.check", "slide.repair"]),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    convergence = summarize_convergence(evidence)
+    slide_repair_total = convergence.repaired
+    slide_first_pass_rate = convergence.first_pass_rate
+    slide_repair_success_rate = convergence.repair_success_rate
+
     # 4) llm token 平均与总和
     avg_prompt, avg_completion, total_prompt, total_completion = (
         await session.execute(
@@ -225,6 +244,9 @@ async def get_metrics_summary(
         slide_total=slide_total,
         slide_succeeded=slide_succeeded,
         slide_success_rate=slide_success_rate,
+        slide_first_pass_rate=slide_first_pass_rate,
+        slide_repair_total=slide_repair_total,
+        slide_repair_success_rate=slide_repair_success_rate,
         avg_prompt_tokens=round1(avg_prompt),
         avg_completion_tokens=round1(avg_completion),
         total_prompt_tokens=total_prompt or 0,

@@ -14,7 +14,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 TraceStatus = Literal["running", "succeeded", "failed", "cancelled"]
-SpanKind = Literal["task", "node", "llm", "export", "image"]
+SpanKind = Literal["task", "node", "llm", "export", "image", "tool"]
 SpanStatus = Literal["running", "succeeded", "failed"]
 
 
@@ -138,6 +138,15 @@ class TraceMetricsSummary(BaseModel):
     slide_succeeded: int = 0
     slide_success_rate: float | None = Field(
         default=None, description="slide[N] task span 口径；窗口内无样本为 null"
+    )
+    # 修复收敛（obs/10）：首过率 = 未进 repair 的页占比；修复成功率 = 进过
+    # repair 的页最终 succeeded 占比。修复轮上限 1，口径见 api/v1/trace.py
+    slide_first_pass_rate: float | None = Field(
+        default=None, description="无 slide.repair 子 span 的页占比；无样本为 null"
+    )
+    slide_repair_total: int = Field(default=0, description="进过修复轮的页数")
+    slide_repair_success_rate: float | None = Field(
+        default=None, description="修复后最终 succeeded 的页数 / 修复页数"
     )
     avg_prompt_tokens: float | None = Field(
         default=None, description="llm span 平均；无样本为 null"

@@ -76,6 +76,13 @@ class CaseRow(BaseModel):
     # 单价未配置时为 0；ai_image_count 是计费张数（image.ai succeeded）
     ai_image_count: int = 0
     cost: float = 0.0
+    # 修复收敛（obs/10）：进入修复轮的页数 / 其中最终成功的页数
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
+    convergence_total: int = 0
+    convergence_first_pass: int = 0
+    convergence_missing: int = 0
+    convergence_repaired_missing: int = 0
 
 
 class RunSummary(BaseModel):
@@ -113,6 +120,10 @@ class RunSummary(BaseModel):
     # 失败题同样烧了 token，总花费必须把它算进去
     avg_cost: float = 0.0
     total_cost: float = 0.0
+    # 修复收敛（obs/10，成功题口径）：首过率 = 未进修复的页占比；
+    # 修复成功率 = 进修复的页最终成功占比（修复轮上限 1）
+    slide_first_pass_rate: float | None = None
+    slide_repair_success_rate: float | None = None
     total_failed_slides: int = 0
     total_slides: int = 0
     retry_slide_rate: float | None = None
@@ -215,9 +226,7 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
     ok_rows = [row for row in rows if row.ok]
     if ok_rows:
         summary.avg_prompt_tokens = sum(row.prompt_tokens for row in ok_rows) / len(ok_rows)
-        summary.avg_completion_tokens = (
-            sum(row.completion_tokens for row in ok_rows) / len(ok_rows)
-        )
+        summary.avg_completion_tokens = sum(row.completion_tokens for row in ok_rows) / len(ok_rows)
         summary.avg_outline_seconds = (
             sum(row.outline_duration_ms for row in ok_rows) / len(ok_rows) / 1000
         )
@@ -228,9 +237,7 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
         summary.avg_export_seconds = (
             sum(row.export_duration_ms for row in ok_rows) / len(ok_rows) / 1000
         )
-        summary.token_joined_cases = sum(
-            1 for row in ok_rows if row.tokens_source == "trace"
-        )
+        summary.token_joined_cases = sum(1 for row in ok_rows if row.tokens_source == "trace")
         summary.avg_cost = sum(row.cost for row in ok_rows) / len(ok_rows)
     else:
         summary.avg_prompt_tokens = 0.0
@@ -238,6 +245,22 @@ def aggregate(rows: list[CaseRow]) -> RunSummary:
 
     # 总花费按全部题累计：失败题同样消耗 token 与生图配额
     summary.total_cost = sum(row.cost for row in rows)
+
+    # 全部题的终态页面均参与；缺少显式校验结果时不展示推断通过率。
+    total = sum(row.convergence_total for row in rows)
+    repairs = sum(row.repair_spans for row in rows)
+    # API 已知有页面、但未采集到足够任务证据的题不能从分母中悄悄消失。
+    missing_page_evidence = any(
+        row.convergence_total < max(row.ready_pages, row.total_slides) for row in rows
+    )
+    if total and not missing_page_evidence and not any(row.convergence_missing for row in rows):
+        summary.slide_first_pass_rate = sum(row.convergence_first_pass for row in rows) / total
+    if (
+        repairs
+        and not missing_page_evidence
+        and not any(row.convergence_repaired_missing for row in rows)
+    ):
+        summary.slide_repair_success_rate = sum(row.repaired_succeeded for row in rows) / repairs
 
     summary.total_failed_slides = sum(row.failed_slide_seen for row in rows)
     summary.total_slides = sum(row.total_slides for row in rows)
@@ -298,6 +321,11 @@ def format_report(report: EvalReport) -> str:
     lines.append(
         f"成本：平均 {_fmt_float(s.avg_cost, 4)} 元 / 题　合计 {_fmt_float(s.total_cost, 4)} 元"
         f"（口径：token×单价 + AI 生图张数×单价；单价走 env，未配置则记 0）"
+    )
+    lines.append(
+        f"首过合法率：{_fmt_pct(s.slide_first_pass_rate)}"
+        f"　修复成功率：{_fmt_pct(s.slide_repair_success_rate)}"
+        f"（口径：全部题终态页，按最终校验结果；历史证据缺失时为未知）"
     )
     lines.append(
         f"重试率：{s.total_failed_slides}/{s.total_slides}（{_fmt_pct(s.retry_slide_rate)}）"

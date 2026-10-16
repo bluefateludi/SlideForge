@@ -214,6 +214,13 @@ function SpanRow({
             返工 R{repairRound}
           </span>
         )}
+        {span.span_kind === 'tool' && (
+          <span className="flex-none text-[10px] text-ink-muted"
+            title={String(span.attributes?.tool_call_id ?? '')}>
+            R{String(span.attributes?.round ?? '—')} / #{String(span.attributes?.call_index ?? '—')}
+            {typeof span.attributes?.block_id === 'string' ? ` · ${span.attributes.block_id}` : ''}
+          </span>
+        )}
         {span.span_kind === 'llm' && (
           <span className="flex-none truncate text-[10px] text-ink-muted">
             {span.model ?? '—'} · ↑{formatTokens(span.prompt_tokens)} ↓

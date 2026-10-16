@@ -1499,6 +1499,18 @@ export interface components {
              */
             end: number;
         };
+        /** EditCheckPublic */
+        EditCheckPublic: {
+            /** Name */
+            name: string;
+            /** Passed */
+            passed: boolean;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+        };
         /**
          * EvalCaseRow
          * @description 逐题明细条目：rows JSONB 的元素结构（入库白名单见 app.eval.persistence）。
@@ -1510,7 +1522,7 @@ export interface components {
              * Category
              * @enum {string}
              */
-            category: "technology" | "business" | "education" | "documents";
+            category: "technology" | "business" | "education" | "documents" | "edit";
             /** Ok */
             ok: boolean;
             /** Stage */
@@ -1562,16 +1574,10 @@ export interface components {
              * @default 0
              */
             elapsed_seconds: number;
-            /**
-             * Prompt Tokens
-             * @default 0
-             */
-            prompt_tokens: number;
-            /**
-             * Completion Tokens
-             * @default 0
-             */
-            completion_tokens: number;
+            /** Prompt Tokens */
+            prompt_tokens?: number | null;
+            /** Completion Tokens */
+            completion_tokens?: number | null;
             /**
              * Tokens Source
              * @default unavailable
@@ -1599,11 +1605,51 @@ export interface components {
              * @default 0
              */
             ai_image_count: number;
+            /** Cost */
+            cost?: number | null;
+            /** Trace Id */
+            trace_id?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Slide Id */
+            slide_id?: string | null;
             /**
-             * Cost
+             * Operations Count
              * @default 0
              */
-            cost: number;
+            operations_count: number;
+            /** Edit Sample */
+            edit_sample?: {
+                [key: string]: unknown;
+            } | null;
+            /** Operations */
+            operations?: {
+                [key: string]: unknown;
+            }[];
+            result_slide?: components["schemas"]["Slide"] | null;
+            /** Edit Elapsed Seconds */
+            edit_elapsed_seconds?: number | null;
+            /** Locked Ids */
+            locked_ids?: string[];
+            /** Checks */
+            checks?: components["schemas"]["EditCheckPublic"][];
+            /**
+             * Measurement Complete
+             * @default false
+             */
+            measurement_complete: boolean;
+            /** Measurement Issues */
+            measurement_issues?: string[];
+            /**
+             * Repair Spans
+             * @default 0
+             */
+            repair_spans: number;
+            /**
+             * Repaired Succeeded
+             * @default 0
+             */
+            repaired_succeeded: number;
         };
         /**
          * EvalCategoryScore
@@ -1685,13 +1731,13 @@ export interface components {
             /** Avg Elapsed Seconds */
             avg_elapsed_seconds: number;
             /** Avg Prompt Tokens */
-            avg_prompt_tokens: number;
+            avg_prompt_tokens: number | null;
             /** Avg Completion Tokens */
-            avg_completion_tokens: number;
+            avg_completion_tokens: number | null;
             /** Avg Cost */
-            avg_cost: number;
+            avg_cost: number | null;
             /** Total Cost */
-            total_cost: number;
+            total_cost: number | null;
             /** Retry Slide Rate */
             retry_slide_rate: number | null;
             /** Total Failed Slides */
@@ -1767,13 +1813,13 @@ export interface components {
             /** Avg Elapsed Seconds */
             avg_elapsed_seconds: number;
             /** Avg Prompt Tokens */
-            avg_prompt_tokens: number;
+            avg_prompt_tokens: number | null;
             /** Avg Completion Tokens */
-            avg_completion_tokens: number;
+            avg_completion_tokens: number | null;
             /** Avg Cost */
-            avg_cost: number;
+            avg_cost: number | null;
             /** Total Cost */
-            total_cost: number;
+            total_cost: number | null;
             /** Retry Slide Rate */
             retry_slide_rate: number | null;
             /** Total Failed Slides */
@@ -2801,7 +2847,7 @@ export interface components {
              * Span Kind
              * @enum {string}
              */
-            span_kind: "task" | "node" | "llm" | "export" | "image";
+            span_kind: "task" | "node" | "llm" | "export" | "image" | "tool";
             /**
              * Status
              * @enum {string}
@@ -3116,6 +3162,22 @@ export interface components {
              * @description slide[N] task span 口径；窗口内无样本为 null
              */
             slide_success_rate?: number | null;
+            /**
+             * Slide First Pass Rate
+             * @description 无 slide.repair 子 span 的页占比；无样本为 null
+             */
+            slide_first_pass_rate?: number | null;
+            /**
+             * Slide Repair Total
+             * @description 进过修复轮的页数
+             * @default 0
+             */
+            slide_repair_total: number;
+            /**
+             * Slide Repair Success Rate
+             * @description 修复后最终 succeeded 的页数 / 修复页数
+             */
+            slide_repair_success_rate?: number | null;
             /**
              * Avg Prompt Tokens
              * @description llm span 平均；无样本为 null

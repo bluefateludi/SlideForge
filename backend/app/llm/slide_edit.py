@@ -27,6 +27,7 @@ from app.llm.base import (
 from app.llm.client import _extract_usage, _is_timeout, _model_name
 from app.llm.edit_tools import EditSession, block_preview, build_edit_tools, sketch_tree
 from app.llm.errors import LLMNotConfiguredError
+from app.llm.tool_execution import execute_edit_tool
 from app.observability import codes
 from app.observability.recorder import finish_span, start_span
 
@@ -75,8 +76,10 @@ class DeepSeekSlideEditGenerator:
                 messages.append(AIMessage(content=turn.note))
         messages.append(HumanMessage(content=self._user_prompt(payload, layout, session)))
 
-        for _ in range(MAX_TOOL_ROUNDS):
-            llm_span = await start_span("llm", "llm", attributes={"purpose": LLM_PURPOSE})
+        for round_index in range(1, MAX_TOOL_ROUNDS + 1):
+            llm_span = await start_span(
+                "llm", "llm", attributes={"purpose": LLM_PURPOSE, "round": round_index}
+            )
             try:
                 response = await bound.ainvoke(messages)
             except Exception as error:
@@ -100,20 +103,16 @@ class DeepSeekSlideEditGenerator:
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
                 break
-            for call in tool_calls:
-                name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
-                args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
-                call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", "")
-                tool = tool_map.get(name)
-                if tool is None:
-                    result = f"错误：未知工具 {name}"
-                else:
-                    result = await tool.ainvoke(args)
-                messages.append(ToolMessage(content=str(result), tool_call_id=str(call_id)))
+            for call_index, call in enumerate(tool_calls, start=1):
+                result = await execute_edit_tool(
+                    tool_map,
+                    call,
+                    round_index=round_index,
+                    call_index=call_index,
+                )
+                messages.append(ToolMessage(content=result.message, tool_call_id=result.call_id))
 
-        operations = _diff_operations(
-            originals, session.blocks, payload.layout_tree, session.tree
-        )
+        operations = _diff_operations(originals, session.blocks, payload.layout_tree, session.tree)
         return SlideEditResult(
             operations=operations,
             blocks=session.blocks,

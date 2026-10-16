@@ -28,7 +28,7 @@ class SpanStore:
 
 
 def usage(trace_id, prompt=0, completion=0):
-    return (trace_id, "llm", "llm", "succeeded", 10, prompt, completion, "test-model")
+    return (trace_id, "llm", "llm", "succeeded", 10, prompt, completion, "test-model", 1, None, {})
 
 
 async def measure(store):

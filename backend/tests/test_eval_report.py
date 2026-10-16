@@ -288,3 +288,25 @@ class TestCostAggregation:
         text = format_report(report)
         assert "成本" in text
         assert "单价" in text
+
+
+def test_missing_trace_for_existing_pages_makes_convergence_unknown():
+    from app.eval.report import CaseRow
+
+    rows = [
+        CaseRow(
+            case_id="known",
+            ok=True,
+            stage="done",
+            ready_pages=1,
+            total_slides=1,
+            convergence_total=1,
+            convergence_first_pass=1,
+            repair_spans=1,
+            repaired_succeeded=1,
+        ),
+        CaseRow(case_id="lost", ok=True, stage="done", ready_pages=1, total_slides=1),
+    ]
+    summary = aggregate(rows)
+    assert summary.slide_first_pass_rate is None
+    assert summary.slide_repair_success_rate is None

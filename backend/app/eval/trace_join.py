@@ -17,11 +17,13 @@ from __future__ import annotations
 import math
 import uuid
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
+from app.observability.convergence import summarize_convergence
 from app.observability.cost import compute_cost
 from app.observability.models import Span
 
@@ -45,6 +47,12 @@ class TraceJoinResult:
     tokens_source: str = TRACE_UNAVAILABLE
     # 计费 AI 生图张数（image.ai 且 succeeded；obs#9）
     ai_image_count: int = 0
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
+    convergence_total: int = 0
+    convergence_first_pass: int = 0
+    convergence_missing: int = 0
+    convergence_repaired_missing: int = 0
     # 成本折算结果（人民币元）；单价未配置时各项为 0 且 configured=False
     llm_cost: float = 0.0
     image_cost: float = 0.0
@@ -66,10 +74,28 @@ async def join_trace_metrics(
     deck_trace_id: str | uuid.UUID | None,
     settings: Settings | None = None,
 ) -> TraceJoinResult:
-    """按两段 trace_id 聚合 spans。任何异常吞掉、按查不到降级。"""
+    """生成评测需要两段 Trace 都有完整数据。"""
+    return await _join_trace_metrics(
+        session,
+        raw_ids=(outline_trace_id, deck_trace_id),
+        settings=settings,
+    )
+
+
+async def join_edit_trace_metrics(
+    session: AsyncSession,
+    *,
+    trace_id: str | uuid.UUID | None,
+    settings: Settings | None = None,
+) -> TraceJoinResult:
+    """编辑只产生一段 ai_edit Trace；不伪造大纲/正文 Trace。"""
+    return await _join_trace_metrics(session, raw_ids=(trace_id,), settings=settings)
+
+
+async def _join_trace_metrics(session, *, raw_ids, settings):
     ids: list[uuid.UUID] = []
     issues: set[str] = set()
-    for raw in (outline_trace_id, deck_trace_id):
+    for raw in raw_ids:
         if raw is None or raw == "":
             issues.add("missing_trace_id")
             continue
@@ -93,6 +119,9 @@ async def join_trace_metrics(
                     Span.prompt_tokens,
                     Span.completion_tokens,
                     Span.model,
+                    Span.id,
+                    Span.parent_span_id,
+                    Span.attributes,
                 ).where(Span.trace_id.in_(ids))
             )
         ).all()
@@ -103,7 +132,25 @@ async def join_trace_metrics(
     seen_token = False
     traces_with_usage: set[uuid.UUID] = set()
     models: set[str] = set()
-    for trace_id, name, span_kind, status, duration_ms, prompt, completion, model in rows:
+    convergence = summarize_convergence(
+        SimpleNamespace(
+            trace_id=row[0],
+            name=row[1],
+            span_kind=row[2],
+            status=row[3],
+            id=row[8],
+            parent_span_id=row[9],
+            attributes=row[10],
+        )
+        for row in rows
+    )
+    result.repair_spans = convergence.repaired
+    result.repaired_succeeded = convergence.repaired_passed
+    result.convergence_total = convergence.total
+    result.convergence_first_pass = convergence.first_pass
+    result.convergence_missing = convergence.missing
+    result.convergence_repaired_missing = convergence.repaired_missing
+    for trace_id, name, span_kind, status, duration_ms, prompt, completion, model, *_ in rows:
         duration = duration_ms or 0
         if span_kind == "llm":
             if model:
