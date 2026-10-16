@@ -89,3 +89,11 @@ def test_add_keyword_in_icon_cannot_substitute_for_requested_text():
         },
     }
     assert not score_edit_case(current, operations=[op]).passed
+
+
+def test_score_returns_evaluated_page_without_mutating_fixture():
+    current = case()
+    score = score_edit_case(current, operations=[replace()])
+    assert score.result_slide is not None
+    assert score.result_slide.blocks[0].text == "营收翻倍之路"
+    assert current.initial_slide.blocks[0].text != "营收翻倍之路"

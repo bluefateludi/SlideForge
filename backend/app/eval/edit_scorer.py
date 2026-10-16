@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domain.content import Slide
 from app.domain.edit_ops import add_block, change_block_type, delete_block
 from app.domain.slide_patch import apply_patches, filter_patches, parse_block_patches
 from app.domain.theme import resolve_theme
@@ -23,6 +24,7 @@ class EditCheck(BaseModel):
 class EditCaseScore(BaseModel):
     case_id: str
     passed: bool
+    result_slide: Slide | None = None
     checks: list[EditCheck] = Field(default_factory=list)
 
 
@@ -150,4 +152,9 @@ def score_edit_case(case: EditCase, *, operations: list[dict[str, Any]]) -> Edit
         if issue.severity == "error"
     ]
     check("structure_valid", not errors, "；".join(issue.message for issue in errors))
-    return EditCaseScore(case_id=case.id, passed=all(item.passed for item in checks), checks=checks)
+    return EditCaseScore(
+        case_id=case.id,
+        passed=all(item.passed for item in checks),
+        checks=checks,
+        result_slide=slide,
+    )

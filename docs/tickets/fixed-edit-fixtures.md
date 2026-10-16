@@ -12,3 +12,7 @@ Part of #42
 
 ## Blocked by
 None — can start immediately
+
+## 流程补充
+- [x] 固定大纲随样本版本化，直接写入并与页面关联；不生成大纲。
+- [x] AI 调用前完成样本结构、主题和 API 大纲/页面一致性校验。

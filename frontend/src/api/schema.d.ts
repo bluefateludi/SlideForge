@@ -1618,6 +1618,17 @@ export interface components {
              * @default 0
              */
             operations_count: number;
+            /** Edit Sample */
+            edit_sample?: {
+                [key: string]: unknown;
+            } | null;
+            /** Operations */
+            operations?: {
+                [key: string]: unknown;
+            }[];
+            result_slide?: components["schemas"]["Slide"] | null;
+            /** Edit Elapsed Seconds */
+            edit_elapsed_seconds?: number | null;
             /** Locked Ids */
             locked_ids?: string[];
             /** Checks */

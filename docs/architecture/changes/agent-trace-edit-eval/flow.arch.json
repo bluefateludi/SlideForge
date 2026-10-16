@@ -2,7 +2,7 @@
   "schema_version": 2,
   "diagram_type": "workflow",
   "meta": {
-    "title": "固定页面编辑评测与工具轨迹",
+    "title": "固定样本编辑评测与工具轨迹",
     "locale": "zh-CN",
     "animation": "none",
     "quality_profile": "showcase",
@@ -53,16 +53,16 @@
       "lane": "eval",
       "col": 0,
       "type": "database",
-      "label": "固定题目",
-      "sublabel": "blocks / tree / locked"
+      "label": "固定样本",
+      "sublabel": "大纲 / 页面 / 规则"
     },
     {
       "id": "prepare",
       "lane": "eval",
       "col": 1,
       "type": "backend",
-      "label": "写入测试页",
-      "sublabel": "核对 API 页面一致"
+      "label": "加载与校验",
+      "sublabel": "结构 / 主题 / 一致性"
     },
     {
       "id": "edit",
@@ -109,8 +109,8 @@
       "lane": "eval",
       "col": 5,
       "type": "frontend",
-      "label": "编辑报告",
-      "sublabel": "断言与调用瀑布树"
+      "label": "逐题报告",
+      "sublabel": "输入 / 提案 / 判定页"
     }
   ],
   "edges": [
@@ -157,10 +157,10 @@
   "cards": [
     {
       "dot": "cyan",
-      "title": "稳定比较编辑能力",
+      "title": "可复核、可比较",
       "items": [
-        "固定页面随题集哈希版本化；移除大纲、正文与生图前置调用",
-        "离线测试用脚本模型；真实评测仍需模型，本次未执行"
+        "固定大纲、初始页面、修改指令和判定规则一同版本化",
+        "逐题保存输入、提案与判定页；Trace 记录模型、工具和各自耗时"
       ]
     }
   ]

@@ -115,7 +115,7 @@ function EditEvalDetail({ run }: { run: EvalRunDetail }) {
       <Link to="/eval" className="text-sm text-accent">← 返回评测记录</Link>
       <h1 className="mt-4 text-2xl font-semibold">固定页面编辑评测</h1>
       <p className="mt-2 text-sm text-ink-muted">
-        {run.cases_version} · 固定 blocks、布局树与锁定状态，直接调用 AI 编辑。
+        {run.cases_version} · 固定大纲、blocks、布局树与锁定状态，校验后调用 AI 编辑。
         通过率来自程序断言；不包含内容评审评分，也不参与生成基线。
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-4">
@@ -137,7 +137,16 @@ function EditEvalDetail({ run }: { run: EvalRunDetail }) {
                   ? '未知' : formatTokens(row.prompt_tokens + row.completion_tokens)
               } · 成本 {row.cost === 0 ? '¥0' : formatCost(row.cost)}
             </p>
+            <p className="mt-1 text-xs text-ink-muted">
+              编辑请求耗时：{row.edit_elapsed_seconds == null ? '未执行' : formatDuration(row.edit_elapsed_seconds)}
+            </p>
             {row.error && <p className="mt-2 text-sm text-negative">{row.error}</p>}
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer text-accent">查看固定样本、修改提案与判定页面</summary>
+              <pre className="mt-2 max-h-96 overflow-auto rounded-lg bg-surface-soft p-3 text-xs">
+                {JSON.stringify({ sample: row.edit_sample, operations: row.operations, result_slide: row.result_slide }, null, 2)}
+              </pre>
+            </details>
             <ul className="mt-3 space-y-1 text-sm">
               {row.checks.map(check => <li key={check.name} className={check.passed ? 'text-positive' : 'text-negative'}>
                 {check.passed ? '✓' : '✗'} {check.name}{check.detail ? `：${check.detail}` : ''}

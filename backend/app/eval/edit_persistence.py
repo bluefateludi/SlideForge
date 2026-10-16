@@ -14,7 +14,10 @@ def build_edit_run(cases: list[EditCase], artifacts: list[EditCaseArtifacts]) ->
         raise ValueError("编辑报告题目与结果不一致")
     total = len(artifacts)
     passed = sum(item.ok for item in artifacts)
-    rows = [{**asdict(item), "category": "edit"} for item in artifacts]
+    rows = [
+        {**asdict(item), "category": "edit", "edit_sample": case.model_dump(mode="json")}
+        for case, item in zip(cases, artifacts, strict=True)
+    ]
 
     def measured(name, *, mean):
         values = [getattr(item, name) for item in artifacts]

@@ -1,6 +1,6 @@
 # 固定页面编辑评测流程
 
-范围：#42 / #57 / #58 / #59 的固定输入、编辑提案、程序评分与独立报告。
+范围：#42 / #57 / #58 / #59 的固定大纲和初始页、调用前校验、编辑提案、程序评分与逐题报告。
 [交互图](flow.html) 可下载后本地打开；[源文件](flow.arch.json) 可编辑。
 GitHub 文件页展示源码，不是在线交互预览。
 
@@ -18,12 +18,12 @@ GitHub 文件页展示源码，不是在线交互预览。
 验收：
 - diagram_type: workflow
 - output: flow.html
-- specification_sha256: 6356098f352343c15760c930edb2ed85051e6b41809e8647fa46be2093022faa
-- artifact_sha256: 9871a4c867badbbaa72457f77ae33e65e87c24a85287e6980f4b4df7f88090dc
+- specification_sha256: 9a03e2c2c9a10cd5e3517b88bf6aa4835b99b5f41543782ca2de63d46c2a1b4f
+- artifact_sha256: 15685d9aa9a10d1550a2017293ccd61c03bc8656f9b370aac48d7490120931f4
 - validation: 9/9 showcase, 0 errors, 0 warnings
 - browser_evidence: passed
 - visual_review: passed
-- correction_rounds: 2
+- correction_rounds: 1
 
 确定性交付见 delivery.json，完整校验见 validation.json。
 浏览器证据见 flow.visual-check.json / flow.visual-check.html；检查四档桌面视口、

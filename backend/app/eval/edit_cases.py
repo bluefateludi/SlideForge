@@ -12,6 +12,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.core.paths import REPO_ROOT
 from app.domain.content import BlockType, Slide
 from app.domain.flex_layout import iter_leaf_block_ids
+from app.domain.outline import OutlinePageDraft
+from app.domain.validation import validate_slide
 
 EDIT_CASES_DIR = REPO_ROOT / "backend" / "eval" / "edit_cases"
 CATEGORIES = ("replace", "add", "guard")
@@ -41,6 +43,7 @@ class EditCase(BaseModel):
     instruction: str = Field(min_length=1, max_length=500)
     title: str = Field(default="编辑评测固定页面", min_length=1, max_length=100)
     theme_id: str = "ivory"
+    initial_outline: OutlinePageDraft
     initial_slide: Slide
     expect: EditExpectation
 
@@ -49,6 +52,8 @@ class EditCase(BaseModel):
         parts = self.id.split("/")
         if len(parts) != 2 or not all(parts) or parts[0] not in CATEGORIES:
             raise ValueError("id 必须为合法的 类别/文件名")
+        if self.initial_outline.layout_id != self.initial_slide.layout_id:
+            raise ValueError("固定大纲与初始页面的布局不一致")
         blocks = self.initial_slide.blocks
         ids = [block.id for block in blocks]
         if not ids or len(set(ids)) != len(ids):
@@ -71,6 +76,15 @@ class EditCase(BaseModel):
             for block in blocks
         ):
             raise ValueError("固定夹具的图片只能使用 placeholder")
+        errors = [
+            issue
+            for issue in validate_slide(self.initial_slide, theme_id=self.theme_id)
+            if issue.severity == "error"
+        ]
+        if errors:
+            raise ValueError(
+                "初始页面格式校验失败：" + "；".join(issue.message for issue in errors)
+            )
         return self
 
     @property

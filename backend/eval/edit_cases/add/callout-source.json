@@ -90,5 +90,17 @@
         "text": "数据口径见年报附录"
       }
     }
+  },
+  "initial_outline": {
+    "title": "季度经营汇报",
+    "objective": "展示本季度营收与经营情况，并保留数据来源提示",
+    "key_points": [
+      "本季度营收同比增长37%",
+      "提升交付并加强服务"
+    ],
+    "source_refs": [],
+    "layout_id": "blank",
+    "page_role": "content",
+    "visual": null
   }
 }

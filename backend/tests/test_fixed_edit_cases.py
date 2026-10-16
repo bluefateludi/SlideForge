@@ -28,3 +28,11 @@ def test_invalid_layout_reference_is_rejected():
     raw["initial_slide"]["layout_tree"]["children"][0]["block_id"] = "missing"
     with pytest.raises(ValueError, match="布局"):
         EditCase.model_validate(raw)
+
+
+def test_fixed_outline_is_part_of_sample_version():
+    cases = load_edit_cases()
+    assert all(case.initial_outline.key_points for case in cases)
+    changed = [case.model_copy(deep=True) for case in cases]
+    changed[0].initial_outline.objective = "新的固定页面目标"
+    assert compute_edit_cases_version(changed) != compute_edit_cases_version(cases)

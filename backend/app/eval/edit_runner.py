@@ -14,7 +14,7 @@ from app.core.db import async_session_factory
 from app.eval.edit_cases import EditCase
 from app.eval.edit_scorer import score_edit_case
 from app.eval.trace_join import TraceJoinResult, join_edit_trace_metrics
-from app.models.project import Project
+from app.models.project import Project, ProjectOutline
 from app.models.slide import Slide
 
 
@@ -36,6 +36,9 @@ class EditCaseArtifacts:
     trace_id: str | None = None
     locked_ids: list[str] = field(default_factory=list)
     operations_count: int = 0
+    operations: list[dict] = field(default_factory=list)
+    result_slide: dict | None = None
+    edit_elapsed_seconds: float | None = None
     checks: list[dict] = field(default_factory=list)
     elapsed_seconds: float = 0.0
     prompt_tokens: int | None = None
@@ -61,11 +64,12 @@ async def prepare_edit_fixture(owner_id: str, case: EditCase) -> FixtureTarget:
         )
         session.add(project)
         await session.flush()
+        outline_page_id = uuid.uuid4()
         slide = Slide(
             project_id=project.id,
-            outline_page_id=uuid.uuid4(),
+            outline_page_id=outline_page_id,
             position=1,
-            title=case.title,
+            title=case.initial_outline.title,
             layout_id=initial.layout_id,
             layout_mode=initial.layout_mode,
             layout_tree=initial.layout_tree.model_dump(mode="json")
@@ -77,6 +81,16 @@ async def prepare_edit_fixture(owner_id: str, case: EditCase) -> FixtureTarget:
             issues=[],
         )
         session.add(slide)
+        session.add(
+            ProjectOutline(
+                project_id=project.id,
+                status="confirmed",
+                revision=1,
+                pages=[
+                    {"id": str(outline_page_id), **case.initial_outline.model_dump(mode="json")}
+                ],
+            )
+        )
         await session.commit()
         return FixtureTarget(str(project.id), str(slide.id))
 
@@ -115,6 +129,9 @@ class EditEvalRunner:
         return results
 
     async def _run_case(self, case: EditCase, item: EditCaseArtifacts) -> None:
+        item.stage = "validate_fixture"
+        # 防止调用方传入 model_copy / 原地改动而绕过题集加载时的校验。
+        case = EditCase.model_validate(case.model_dump(mode="json"))
         item.stage = "register"
         credentials = {
             "email": f"edit-eval-{secrets.token_hex(6)}@slideforge.eval",
@@ -144,17 +161,39 @@ class EditEvalRunner:
         ):
             raise ValueError("固定夹具与 API 中的初始页面不一致")
 
-        item.stage = "ai_edit"
-        proposal = await self._request(
-            "POST",
-            f"/projects/{target.project_id}/deck/slides/{target.slide_id}/ai-edit",
-            json={"instruction": case.instruction, "revision": target.revision, "history": []},
+        outline = await self._request(
+            "GET",
+            f"/projects/{target.project_id}/outline",
             headers=headers,
         )
+        pages = outline.get("pages") or []
+        expected_outline = case.initial_outline.model_dump(mode="json")
+        if (
+            outline.get("status") != "confirmed"
+            or len(pages) != 1
+            or {key: pages[0].get(key) for key in expected_outline} != expected_outline
+        ):
+            raise ValueError("固定大纲夹具与 API 中的大纲不一致")
+
+        item.stage = "ai_edit"
+        edit_started = time.monotonic()
+        try:
+            proposal = await self._request(
+                "POST",
+                f"/projects/{target.project_id}/deck/slides/{target.slide_id}/ai-edit",
+                json={"instruction": case.instruction, "revision": target.revision, "history": []},
+                headers=headers,
+            )
+        finally:
+            item.edit_elapsed_seconds = time.monotonic() - edit_started
         operations = list(proposal.get("operations") or [])
         item.operations_count = len(operations)
+        item.operations = operations
         score = score_edit_case(case, operations=operations)
         item.ok = score.passed
+        item.result_slide = (
+            score.result_slide.model_dump(mode="json") if score.result_slide else None
+        )
         item.checks = [check.model_dump() for check in score.checks]
         item.trace_id = proposal.get("trace_id")
         item.stage = "scored"

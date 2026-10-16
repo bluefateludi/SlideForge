@@ -13,6 +13,7 @@ from app.eval.edit_persistence import build_edit_run
 from app.eval.edit_runner import EditEvalRunner
 from app.llm.slide_edit import DeepSeekSlideEditGenerator
 from app.main import app
+from app.models.project import ProjectOutline
 from app.models.slide import Slide
 from app.observability.models import Span
 
@@ -64,14 +65,32 @@ async def test_fixed_fixture_real_api_trace_and_report(monkeypatch):
         assert result.trace_id is not None
         assert result.prompt_tokens == 20
         assert result.completion_tokens == 10
-        assert not any("outline" in path or path.endswith("/generate") for path in paths)
+        assert not any(path.endswith("/generate") for path in paths)
         async with async_session_factory() as session:
             spans = (
                 await session.scalars(
                     select(Span).where(Span.trace_id == uuid.UUID(result.trace_id))
                 )
             ).all()
+            model_calls = [span for span in spans if span.span_kind == "llm"]
+            assert len(model_calls) == 2
+            assert all(
+                span.model == "offline-script" and span.duration_ms is not None
+                for span in model_calls
+            )
             tool = next(span for span in spans if span.span_kind == "tool")
+            assert tool.duration_ms is not None
+            outline = (
+                await session.scalars(
+                    select(ProjectOutline).where(
+                        ProjectOutline.project_id == uuid.UUID(result.project_id)
+                    )
+                )
+            ).one()
+            assert outline.pages[0]["id"] == str(
+                (await session.get(Slide, uuid.UUID(result.slide_id))).outline_page_id
+            )
+            assert outline.pages[0]["objective"] == case.initial_outline.objective
             assert tool.parent_span_id is not None
             assert tool.attributes["tool_call_id"] == "fixed_call"
             assert tool.attributes["call_index"] == 1
@@ -96,3 +115,9 @@ async def test_fixed_fixture_real_api_trace_and_report(monkeypatch):
         assert body["rows"][0]["category"] == "edit"
         assert body["rows"][0]["trace_id"] == result.trace_id
         assert body["rows"][0]["checks"]
+        assert body["rows"][0]["edit_sample"]["initial_outline"]["objective"] == (
+            case.initial_outline.objective
+        )
+        assert body["rows"][0]["operations"][0]["after"]["text"] == "营收翻倍之路"
+        assert body["rows"][0]["result_slide"]["blocks"][0]["text"] == "营收翻倍之路"
+        assert body["rows"][0]["edit_elapsed_seconds"] is not None

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.domain.content import Slide
 from app.eval.cases import CATEGORIES
 
 EvalRunStatus = Literal["completed", "failed"]
@@ -67,6 +68,10 @@ class EvalCaseRow(BaseModel):
     project_id: uuid.UUID | None = None
     slide_id: uuid.UUID | None = None
     operations_count: int = 0
+    edit_sample: dict[str, Any] | None = None
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    result_slide: Slide | None = None
+    edit_elapsed_seconds: float | None = None
     locked_ids: list[str] = Field(default_factory=list)
     checks: list[EditCheckPublic] = Field(default_factory=list)
     measurement_complete: bool = False
