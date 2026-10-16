@@ -202,6 +202,13 @@ function MetricsSection({ metrics, failed }: { metrics?: TraceMetricsSummary; fa
           unit={`${metrics.slide_succeeded}/${metrics.slide_total} 页`}
         />
         <MetricCard
+          label="首过率 / 修复成功率"
+          value={`${formatPercent(metrics.slide_first_pass_rate)} / ${formatPercent(
+            metrics.slide_repair_success_rate,
+          )}`}
+          unit={`修复 ${metrics.slide_repair_total} 页`}
+        />
+        <MetricCard
           label="平均 Token（llm）"
           value={`${formatTokens(metrics.avg_prompt_tokens)} + ${formatTokens(
             metrics.avg_completion_tokens,

@@ -1604,6 +1604,16 @@ export interface components {
              * @default 0
              */
             cost: number;
+            /**
+             * Repair Spans
+             * @default 0
+             */
+            repair_spans: number;
+            /**
+             * Repaired Succeeded
+             * @default 0
+             */
+            repaired_succeeded: number;
         };
         /**
          * EvalCategoryScore
@@ -2801,7 +2811,7 @@ export interface components {
              * Span Kind
              * @enum {string}
              */
-            span_kind: "task" | "node" | "llm" | "export" | "image";
+            span_kind: "task" | "node" | "llm" | "export" | "image" | "tool";
             /**
              * Status
              * @enum {string}
@@ -3116,6 +3126,22 @@ export interface components {
              * @description slide[N] task span 口径；窗口内无样本为 null
              */
             slide_success_rate?: number | null;
+            /**
+             * Slide First Pass Rate
+             * @description 无 slide.repair 子 span 的页占比；无样本为 null
+             */
+            slide_first_pass_rate?: number | null;
+            /**
+             * Slide Repair Total
+             * @description 进过修复轮的页数
+             * @default 0
+             */
+            slide_repair_total: number;
+            /**
+             * Slide Repair Success Rate
+             * @description 修复后最终 succeeded 的页数 / 修复页数
+             */
+            slide_repair_success_rate?: number | null;
             /**
              * Avg Prompt Tokens
              * @description llm span 平均；无样本为 null

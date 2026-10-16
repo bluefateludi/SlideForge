@@ -45,6 +45,8 @@ class TraceJoinResult:
     tokens_source: str = TRACE_UNAVAILABLE
     # 计费 AI 生图张数（image.ai 且 succeeded；obs#9）
     ai_image_count: int = 0
+    repair_spans: int = 0
+    repaired_succeeded: int = 0
     # 成本折算结果（人民币元）；单价未配置时各项为 0 且 configured=False
     llm_cost: float = 0.0
     image_cost: float = 0.0

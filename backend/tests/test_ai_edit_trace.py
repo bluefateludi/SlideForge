@@ -323,3 +323,116 @@ async def test_ai_edit_works_when_recorder_db_down(
 
     rows = await _project_traces(uuid.UUID(project["id"]))
     assert rows == [], "trace 建失败不应留下任何行"
+
+
+class ScriptedToolModel:
+    """按脚本逐轮返回消息（obs/10）：先带 tool_calls，再收尾空消息。"""
+
+    model_name = "fake-tool"
+
+    def __init__(self, messages: list[AIMessage]) -> None:
+        self._messages = list(messages)
+
+    def bind_tools(self, tools):  # noqa: ANN001, ANN201
+        return self
+
+    async def ainvoke(self, messages, *args, **kwargs):  # noqa: ANN001, ANN201
+        return self._messages.pop(0)
+
+
+async def _post_ai_edit(
+    client: AsyncClient, headers: dict, project: dict, slide: SlideRow, instruction: str
+):
+    return await client.post(
+        f"/api/v1/projects/{project['id']}/deck/slides/{slide.id}/ai-edit",
+        json={"instruction": instruction, "revision": slide.revision, "history": []},
+        headers=headers,
+    )
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_leave_tool_spans(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """obs/10：每次工具调用落一个 tool span（名称/轮次/block_id/结果状态）。"""
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "replace_text",
+                    "args": {"block_id": "t1", "text": "改写后的标题"},
+                    "id": "call_1",
+                }
+            ],
+        ),
+        AIMessage(content="完成"),
+    ]
+    generator = DeepSeekSlideEditGenerator(
+        model=ScriptedToolModel(messages), api_key="fake-key"
+    )
+    _patch_generator(monkeypatch, generator)
+
+    headers = await _sign_up(client)
+    project, slide = await _project_with_slide(client, headers)
+    response = await _post_ai_edit(client, headers, project, slide, "把标题改写")
+    assert response.status_code == 200, response.text
+    assert response.json()["operations"], "工具改动应体现在提案里"
+
+    trace = (await _project_traces(uuid.UUID(project["id"])))[-1]
+    spans = await _trace_spans(trace.id)
+    tool_spans = [span for span in spans if span.span_kind == "tool"]
+    assert len(tool_spans) == 1
+    span = tool_spans[0]
+    assert span.name == "tool.replace_text"
+    assert span.status == "succeeded"
+    assert span.attributes["round"] == 1
+    assert span.attributes["block_id"] == "t1"
+
+
+@pytest.mark.asyncio
+async def test_tool_rejected_records_error_code(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """obs/10：locked 块被拒 → tool span failed + error_code=tool_rejected。"""
+    messages = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "replace_text",
+                    "args": {"block_id": "t1", "text": "不许改"},
+                    "id": "call_1",
+                }
+            ],
+        ),
+        AIMessage(content="完成"),
+    ]
+    generator = DeepSeekSlideEditGenerator(
+        model=ScriptedToolModel(messages), api_key="fake-key"
+    )
+    _patch_generator(monkeypatch, generator)
+
+    headers = await _sign_up(client)
+    project, slide = await _project_with_slide(client, headers)
+    # 把标题块标记为人工锁定（locked），AI 不得覆盖
+    async with async_session_factory() as session:
+        row = await session.get(SlideRow, slide.id)
+        blocks = list(row.blocks)
+        blocks[0] = {**blocks[0], "locked": True}
+        row.blocks = blocks
+        await session.commit()
+
+    response = await _post_ai_edit(client, headers, project, slide, "把标题改写")
+    assert response.status_code == 200, response.text
+
+    trace = (await _project_traces(uuid.UUID(project["id"])))[-1]
+    spans = await _trace_spans(trace.id)
+    tool_spans = [span for span in spans if span.span_kind == "tool"]
+    assert len(tool_spans) == 1
+    span = tool_spans[0]
+    assert span.status == "failed"
+    assert span.error_code == "tool_rejected"
+    assert "已人工修改" in (span.error_message or "")
+    # 被拒的改动不进提案
+    assert response.json()["operations"] == []

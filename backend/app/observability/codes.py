@@ -22,3 +22,9 @@ VERIFY_ERROR = "verify_error"  # 导出回读验证异常
 
 # --- obs#5 新增（图片降级链） ---
 IMAGE_GEN_ERROR = "image_gen_error"  # AI 生图级未产出图（异常或空响应），降级到下一级
+
+# --- obs/10 新增（编辑环工具调用） ---
+TOOL_UNKNOWN = "tool_unknown"  # 模型调用了未注册的工具名
+# 域规则拒绝（locked 块/块不存在/类型不符）：工具正常工作，改动未生效
+TOOL_REJECTED = "tool_rejected"
+TOOL_ERROR = "tool_error"  # 工具执行抛异常
