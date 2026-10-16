@@ -18,7 +18,7 @@ GitHub 文件页展示源码，不是在线交互预览。
 验收：
 - diagram_type: workflow
 - output: flow.html
-- specification_sha256: 807356aa4e5d3276006ed271427e6f32e7ddc06a77d1268285023b9c879b954b
+- specification_sha256: 6356098f352343c15760c930edb2ed85051e6b41809e8647fa46be2093022faa
 - artifact_sha256: 9871a4c867badbbaa72457f77ae33e65e87c24a85287e6980f4b4df7f88090dc
 - validation: 9/9 showcase, 0 errors, 0 warnings
 - browser_evidence: passed
