@@ -20,7 +20,7 @@ def test_repo_cases_load_and_validate() -> None:
     assert [case.id for case in cases] == sorted(case.id for case in cases)
     assert all(case.category in CATEGORIES for case in cases)
     version = compute_edit_cases_version(cases)
-    assert version.startswith("edit-") and len(version) == len("edit-") + 12
+    assert version.startswith("edit-") and len(version) == len("edit-v2-") + 12
 
 
 def _write(root: Path, rel: str, payload: dict) -> None:
@@ -30,16 +30,11 @@ def _write(root: Path, rel: str, payload: dict) -> None:
 
 
 def _valid_case(cid: str = "replace/x") -> dict:
-    return {
-        "id": cid,
-        "instruction": "把标题改为「营收翻倍之路」",
-        "seed": {
-            "topic": "一家公司的年度经营汇报要点，包含增长与留存",
-            "page_count": 2,
-            "title": "汇报",
-        },
-        "expect": {"op_types": ["replace"], "max_ops": 2},
-    }
+    raw = next(case for case in load_edit_cases() if case.id == "replace/retitle-page").model_dump(
+        mode="json"
+    )
+    raw["id"] = cid
+    return raw
 
 
 def test_bad_category_directory_rejected(tmp_path: Path) -> None:

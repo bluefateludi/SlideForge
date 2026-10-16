@@ -27,6 +27,7 @@ from app.llm.base import (
 from app.llm.client import _extract_usage, _is_timeout, _model_name
 from app.llm.edit_tools import EditSession, block_preview, build_edit_tools, sketch_tree
 from app.llm.errors import LLMNotConfiguredError
+from app.llm.tool_execution import execute_edit_tool
 from app.observability import codes
 from app.observability.recorder import finish_span, start_span
 
@@ -102,46 +103,16 @@ class DeepSeekSlideEditGenerator:
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls:
                 break
-            for call in tool_calls:
-                name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
-                args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
-                call_id = call.get("id") if isinstance(call, dict) else getattr(call, "id", "")
-                # obs/10：每次工具调用一个 tool span（轨迹评测地基）。
-                # attributes 只记轮次与 block_id，不落参数正文（span 不存正文原则）
-                attributes: dict = {"round": round_index}
-                block_id = args.get("block_id") if isinstance(args, dict) else None
-                if isinstance(block_id, str) and block_id:
-                    attributes["block_id"] = block_id
-                tool_span = await start_span(f"tool.{name}", "tool", attributes=attributes)
-                tool = tool_map.get(name)
-                if tool is None:
-                    result = f"错误：未知工具 {name}"
-                    await finish_span(
-                        tool_span, "failed", error_code=codes.TOOL_UNKNOWN, error_message=result
-                    )
-                else:
-                    try:
-                        result = await tool.ainvoke(args)
-                    except Exception as error:
-                        await finish_span(
-                            tool_span,
-                            "failed",
-                            error_code=codes.TOOL_ERROR,
-                            error_message=str(error) or error.__class__.__name__,
-                        )
-                        raise
-                    rejected = str(result).startswith("错误")
-                    await finish_span(
-                        tool_span,
-                        "succeeded" if not rejected else "failed",
-                        error_code=codes.TOOL_REJECTED if rejected else None,
-                        error_message=str(result)[:200] if rejected else None,
-                    )
-                messages.append(ToolMessage(content=str(result), tool_call_id=str(call_id)))
+            for call_index, call in enumerate(tool_calls, start=1):
+                result = await execute_edit_tool(
+                    tool_map,
+                    call,
+                    round_index=round_index,
+                    call_index=call_index,
+                )
+                messages.append(ToolMessage(content=result.message, tool_call_id=result.call_id))
 
-        operations = _diff_operations(
-            originals, session.blocks, payload.layout_tree, session.tree
-        )
+        operations = _diff_operations(originals, session.blocks, payload.layout_tree, session.tree)
         return SlideEditResult(
             operations=operations,
             blocks=session.blocks,

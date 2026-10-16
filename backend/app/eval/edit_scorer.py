@@ -1,12 +1,4 @@
-"""ai_edit 工具环评分器（obs/10）：纯规则断言，不引入 judge。
-
-输入是 ai-edit 提案返回的 operations（AiEditOperationPublic 形态的 dict）
-与运行期锁定的块 id 列表；断言四件事：
-1. 操作类型白名单（replace/add/delete/change_type）
-2. 操作数上限（过度编辑检查：未点名的块不动）
-3. 结果包含关键词（指令达成检查，json 子串匹配）
-4. locked 块零误改（权限边界检查）
-"""
+"""编辑提案的确定性评分：在固定副本上验证目标、结果与保护规则。"""
 
 from __future__ import annotations
 
@@ -15,6 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.domain.edit_ops import add_block, change_block_type, delete_block
+from app.domain.slide_patch import apply_patches, filter_patches, parse_block_patches
+from app.domain.theme import resolve_theme
+from app.domain.validation import validate_slide
 from app.eval.edit_cases import EditCase
 
 
@@ -30,62 +26,128 @@ class EditCaseScore(BaseModel):
     checks: list[EditCheck] = Field(default_factory=list)
 
 
-def score_edit_case(
-    case: EditCase, *, operations: list[dict[str, Any]], locked_ids: list[str]
-) -> EditCaseScore:
-    checks: list[EditCheck] = []
+def score_edit_case(case: EditCase, *, operations: list[dict[str, Any]]) -> EditCaseScore:
+    checks = []
+
+    def check(name: str, passed: bool, detail: str = ""):
+        checks.append(EditCheck(name=name, passed=passed, detail="" if passed else detail))
+
     expect = case.expect
-
-    # 1) 操作类型白名单
-    bad_types = sorted(
-        {str(op.get("op")) for op in operations if str(op.get("op")) not in expect.op_types}
+    check(
+        "op_count",
+        expect.min_ops <= len(operations) <= expect.max_ops,
+        f"操作数 {len(operations)}，要求 {expect.min_ops}–{expect.max_ops}",
     )
-    checks.append(
-        EditCheck(
-            name="op_types",
-            passed=not bad_types,
-            detail=f"允许 {expect.op_types}，越界 {bad_types}" if bad_types else "",
-        )
+    check(
+        "op_types", all(op.get("op") in expect.op_types for op in operations), "操作类型不符合要求"
     )
+    before = {block.id: block.model_dump(mode="json") for block in case.initial_slide.blocks}
+    existing_touched = {str(op.get("block_id")) for op in operations if op.get("op") != "add"}
+    allowed = set(expect.target_block_ids)
+    check("target_blocks", existing_touched <= allowed, "操作命中了未指定的内容块")
+    locked = {key for key, block in before.items() if block["locked"]}
+    check("locked_untouched", not existing_touched & locked, "提案操作了锁定块")
 
-    # 2) 操作数上限（过度编辑）
-    over = len(operations) - expect.max_ops
-    checks.append(
-        EditCheck(
-            name="max_ops",
-            passed=over <= 0,
-            detail=f"{len(operations)} 个操作 > 上限 {expect.max_ops}" if over > 0 else "",
-        )
+    slide = case.initial_slide.model_copy(deep=True)
+    added = []
+    try:
+        seen = set()
+        for op in operations:
+            kind, block_id = op.get("op"), str(op.get("block_id") or "")
+            if not block_id or block_id in seen:
+                raise ValueError("操作目标为空或重复")
+            seen.add(block_id)
+            after = op.get("after") or {}
+            if kind == "replace":
+                if after.get("block_id", block_id) != block_id:
+                    raise ValueError("操作目标与 after.block_id 不一致")
+                patches = parse_block_patches([{**after, "block_id": block_id}])
+                filtered = filter_patches(slide.blocks, patches)
+                if filtered.discarded:
+                    raise ValueError("替换操作被领域规则拒绝")
+                slide.blocks = apply_patches(slide.blocks, filtered.accepted)
+            elif kind == "add":
+                if block_id in before or slide.layout_tree is None:
+                    raise ValueError("新增块重复或缺少布局树")
+                if after.get("id", block_id) != block_id:
+                    raise ValueError("新增块 ID 不一致")
+                if after.get("type") != expect.new_block_type:
+                    raise ValueError("新增块类型错误")
+                if op.get("after_block_id") != expect.new_block_after:
+                    raise ValueError("新增块位置错误")
+                slide.blocks, slide.layout_tree, created = add_block(
+                    slide.blocks,
+                    slide.layout_tree,
+                    block_type=after["type"],
+                    after_block_id=op["after_block_id"],
+                    content=after,
+                    block_id=block_id,
+                )
+                added.append(created.id)
+            elif kind == "delete":
+                if slide.layout_tree is None:
+                    raise ValueError("删除操作缺少布局树")
+                slide.blocks, slide.layout_tree, _ = delete_block(
+                    slide.blocks,
+                    slide.layout_tree,
+                    block_id,
+                )
+            elif kind == "change_type":
+                slide.blocks, slide.layout_tree, _, _ = change_block_type(
+                    slide.blocks,
+                    slide.layout_tree,
+                    block_id=block_id,
+                    new_type=after["type"],
+                    content=after,
+                )
+            else:
+                raise ValueError("未知操作")
+        check("proposal_valid", True)
+    except (ValueError, KeyError, TypeError) as error:
+        check("proposal_valid", False, str(error))
+        return EditCaseScore(case_id=case.id, passed=False, checks=checks)
+
+    final = {block.id: block.model_dump(mode="json") for block in slide.blocks}
+    check(
+        "unrelated_untouched",
+        all(final.get(key) == raw for key, raw in before.items() if key not in allowed),
+        "未指定内容或锁定状态发生变化",
     )
-
-    # 3) 结果包含关键词（在任一操作的 after 内容里找到即算）
-    for keyword in expect.after_contains:
-        haystack = json.dumps([op.get("after") for op in operations], ensure_ascii=False)
-        found = keyword in haystack
-        checks.append(
-            EditCheck(
-                name=f"after_contains:{keyword}",
-                passed=found,
-                detail="" if found else "所有操作的 after 内容均未包含该关键词",
-            )
+    changed = {key for key in before if final.get(key) != before[key]}
+    if expect.min_ops:
+        check("actual_change", bool(changed or added), "操作没有产生实际修改")
+        check("required_targets", allowed <= changed, "指定内容块没有全部完成修改")
+    for target, fields in expect.expected_after.items():
+        check(
+            f"expected_after:{target}",
+            bool(added if target == "$new" else [target])
+            and all(
+                key in final
+                and all(final[key].get(field) == value for field, value in fields.items())
+                for key in (added if target == "$new" else [target])
+            ),
+            "目标块的结果与期望不一致",
         )
-
-    # 4) locked 块零误改
-    if expect.locked_zero_edit and locked_ids:
-        touched = sorted({str(op.get("block_id")) for op in operations} & set(locked_ids))
-        checks.append(
-            EditCheck(
-                name="locked_untouched",
-                passed=not touched,
-                detail=f"locked 块被操作：{touched}" if touched else "",
-            )
+    for target, keywords in expect.after_contains.items():
+        ids = added if target == "$new" else [target]
+        content_fields = ("text", "items", "value", "label", "note", "header", "rows")
+        text = json.dumps(
+            [
+                {field: final[key][field] for field in content_fields if field in final[key]}
+                for key in ids
+                if key in final
+            ],
+            ensure_ascii=False,
         )
-
-    return EditCaseScore(
-        case_id=case.id,
-        passed=all(check.passed for check in checks),
-        checks=checks,
-    )
-
-
-__all__ = ["EditCaseScore", "EditCheck", "score_edit_case"]
+        check(
+            f"after_contains:{target}",
+            all(word in text for word in keywords),
+            "目标结果缺少指定文字",
+        )
+    errors = [
+        issue
+        for issue in validate_slide(slide, theme=resolve_theme(case.theme_id))
+        if issue.severity == "error"
+    ]
+    check("structure_valid", not errors, "；".join(issue.message for issue in errors))
+    return EditCaseScore(case_id=case.id, passed=all(item.passed for item in checks), checks=checks)

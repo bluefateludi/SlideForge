@@ -48,8 +48,10 @@ export default function EvalRunDetailPage() {
   }
 
   const data = run.data
+  if (data.cases_version.startsWith("edit-v2-")) return <EditEvalDetail run={data} />
   const score = overallScore(data)
-  const avgTokens = Math.round(data.avg_prompt_tokens + data.avg_completion_tokens)
+  const avgTokens = data.avg_prompt_tokens === null || data.avg_completion_tokens === null
+    ? null : Math.round(data.avg_prompt_tokens + data.avg_completion_tokens)
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -85,7 +87,7 @@ export default function EvalRunDetailPage() {
 
       <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <MetricCard label="平均耗时" value={formatDuration(data.avg_elapsed_seconds)} unit="/题" />
-        <MetricCard label="平均 Token" value={avgTokens.toLocaleString()} unit="/题" />
+        <MetricCard label="平均 Token" value={avgTokens === null ? "—" : avgTokens.toLocaleString()} unit="/题" />
         <MetricCard
           label="平均成本"
           value={formatCost(data.avg_cost)}
@@ -101,6 +103,52 @@ export default function EvalRunDetailPage() {
       </div>
 
       <CaseTable run={data} />
+    </div>
+  )
+}
+
+function EditEvalDetail({ run }: { run: EvalRunDetail }) {
+  const tokens = run.avg_prompt_tokens === null || run.avg_completion_tokens === null
+    ? null : run.avg_prompt_tokens + run.avg_completion_tokens
+  return (
+    <div className="mx-auto max-w-6xl px-6 py-10">
+      <Link to="/eval" className="text-sm text-accent">← 返回评测记录</Link>
+      <h1 className="mt-4 text-2xl font-semibold">固定页面编辑评测</h1>
+      <p className="mt-2 text-sm text-ink-muted">
+        {run.cases_version} · 固定 blocks、布局树与锁定状态，直接调用 AI 编辑。
+        通过率来自程序断言；不包含内容评审评分，也不参与生成基线。
+      </p>
+      <div className="mt-6 grid gap-4 sm:grid-cols-4">
+        <MetricCard label="编辑通过率" value={formatPercent(run.success_rate)} />
+        <MetricCard label="平均耗时（含本地准备）" value={formatDuration(run.avg_elapsed_seconds)} />
+        <MetricCard label="平均编辑 Token" value={tokens === null ? '—' : formatTokens(tokens)} />
+        <MetricCard label="平均成本" value={run.avg_cost === 0 ? '¥0' : formatCost(run.avg_cost)} />
+      </div>
+      <div className="mt-6 space-y-4">
+        {run.rows.map(row => (
+          <article key={row.case_id} className="rounded-2xl border border-line bg-surface p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-medium">{row.case_id} · {row.ok ? '通过' : '失败'}</h2>
+              {row.trace_id && <Link className="text-sm text-accent" to={`/trace/${row.trace_id}`}>查看调用瀑布树</Link>}
+            </div>
+            <p className="mt-2 text-xs text-ink-muted">
+              {row.operations_count} 个操作 · {formatDuration(row.elapsed_seconds)} · Token {
+                row.prompt_tokens === null || row.completion_tokens === null
+                  ? '未知' : formatTokens(row.prompt_tokens + row.completion_tokens)
+              } · 成本 {row.cost === 0 ? '¥0' : formatCost(row.cost)}
+            </p>
+            {row.error && <p className="mt-2 text-sm text-negative">{row.error}</p>}
+            <ul className="mt-3 space-y-1 text-sm">
+              {row.checks.map(check => <li key={check.name} className={check.passed ? 'text-positive' : 'text-negative'}>
+                {check.passed ? '✓' : '✗'} {check.name}{check.detail ? `：${check.detail}` : ''}
+              </li>)}
+            </ul>
+            {!row.measurement_complete && <p className="mt-3 text-xs text-warning">
+              观测未完整：{row.measurement_issues.join('、') || '未记录用量'}。缺失数据不按零计算。
+            </p>}
+          </article>
+        ))}
+      </div>
     </div>
   )
 }
@@ -234,9 +282,9 @@ function CaseTable({ run }: { run: EvalRunDetail }) {
 function CaseTableRow({ row, index }: { row: EvalCaseRow; index: number }) {
   const status = row.ok ? ROW_STATUS.ok : ROW_STATUS.failed
   const pages = row.expected_pages > 0 ? `${row.ready_pages}/${row.expected_pages}` : '—'
-  const tokens = row.prompt_tokens + row.completion_tokens
+  const tokens = (row.prompt_tokens ?? 0) + (row.completion_tokens ?? 0)
   const tokenText =
-    row.tokens_source === 'trace' ? formatTokens(tokens) : '—'
+    row.tokens_source === 'trace' && row.prompt_tokens !== null && row.completion_tokens !== null ? formatTokens(tokens) : '—'
   const stages = [
     row.outline_duration_ms > 0 ? `大纲 ${formatDuration(row.outline_duration_ms / 1000)}` : null,
     row.slide_durations_ms.length > 0

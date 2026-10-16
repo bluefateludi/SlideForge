@@ -60,6 +60,10 @@ _DETAIL_KEYS = (
     "cost",
     "repair_spans",
     "repaired_succeeded",
+    "convergence_total",
+    "convergence_first_pass",
+    "convergence_missing",
+    "convergence_repaired_missing",
 )
 
 
@@ -153,6 +157,10 @@ async def join_report_traces(session: AsyncSession, report: EvalReport) -> None:
         row.observed_models = joined.observed_models
         row.repair_spans = joined.repair_spans
         row.repaired_succeeded = joined.repaired_succeeded
+        row.convergence_total = joined.convergence_total
+        row.convergence_first_pass = joined.convergence_first_pass
+        row.convergence_missing = joined.convergence_missing
+        row.convergence_repaired_missing = joined.convergence_repaired_missing
     report.summary = aggregate(report.rows)
 
 

@@ -284,9 +284,7 @@ async def test_join_counts_billable_images_and_cost(project_id: uuid.UUID) -> No
         # 生图降级链：2 张交付、1 张失败、1 张图库（免费）
         await _add_span(session, deck_trace, name="image.ai", span_kind="image")
         await _add_span(session, deck_trace, name="image.ai", span_kind="image")
-        await _add_span(
-            session, deck_trace, name="image.ai", span_kind="image", status="failed"
-        )
+        await _add_span(session, deck_trace, name="image.ai", span_kind="image", status="failed")
         await _add_span(session, deck_trace, name="image.unsplash", span_kind="image")
         await session.commit()
 
@@ -369,6 +367,19 @@ async def test_join_counts_repair_convergence(project_id: uuid.UUID) -> None:
                 ),
             ]
         )
+        session.add_all(
+            [
+                Span(
+                    trace_id=deck_trace,
+                    parent_span_id=task.id,
+                    name="slide.check",
+                    span_kind="node",
+                    status="succeeded",
+                    attributes={"quality_passed": valid},
+                )
+                for task, valid in [(task1, True), (task2, True), (task3, False)]
+            ]
+        )
         await session.commit()
 
         joined = await join_trace_metrics(
@@ -380,3 +391,27 @@ async def test_join_counts_repair_convergence(project_id: uuid.UUID) -> None:
 
         await session.execute(delete(Trace).where(Trace.id == deck_trace))
         await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_check_result_evidence_persists_from_empty_attributes(project_id):
+    from sqlalchemy import select
+
+    from app.observability import context
+    from app.observability.recorder import finish_trace, start_trace, traced_node
+
+    trace_id = await start_trace(kind="deck", project_id=project_id)
+    token = context.set_trace_id(trace_id)
+
+    @traced_node("slide.check", result_attributes=lambda result: {"quality_passed": result["ok"]})
+    async def check(state):
+        return {"ok": True}
+
+    try:
+        assert await check({}) == {"ok": True}
+    finally:
+        context.reset_trace_id(token)
+        await finish_trace(trace_id, "succeeded")
+    async with async_session_factory() as session:
+        saved = (await session.scalars(select(Span).where(Span.trace_id == trace_id))).one()
+        assert saved.attributes == {"quality_passed": True}

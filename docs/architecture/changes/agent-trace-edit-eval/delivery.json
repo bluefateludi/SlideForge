@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "workflow",
+  "input": "C:\\Users\\86150\\.codex\\worktrees\\eval-baseline-integrity\\ai-ppt-generator\\docs\\architecture\\changes\\agent-trace-edit-eval\\flow.arch.json",
+  "output": "C:\\Users\\86150\\.codex\\worktrees\\eval-baseline-integrity\\ai-ppt-generator\\docs\\architecture\\changes\\agent-trace-edit-eval\\flow.html",
+  "specification": {
+    "sha256": "807356aa4e5d3276006ed271427e6f32e7ddc06a77d1268285023b9c879b954b",
+    "bytes": 3403
+  },
+  "artifact": {
+    "sha256": "9871a4c867badbbaa72457f77ae33e65e87c24a85287e6980f4b4df7f88090dc",
+    "bytes": 806063
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.db import get_session
 from app.models.user import User
+from app.observability.convergence import summarize_convergence
 from app.observability.cost import compute_cost
 from app.observability.models import Span, Trace
 from app.schemas.trace import (
@@ -147,33 +148,23 @@ async def get_metrics_summary(
     ).one()
     slide_success_rate = round(slide_succeeded / slide_total, 3) if slide_total else None
 
-    # 3b) 修复收敛（obs/10）：首过率 = 无 slide.repair 子节点的页占比；
-    # 修复成功率 = 进过 repair 的页最终 succeeded 的占比。
-    # 修复轮数上限 1（workflows/slide.py），每页至多一个 repair 子 span
-    repaired_parents = (
-        select(Span.parent_span_id)
-        .where(span_in_window, Span.span_kind == "node", Span.name == "slide.repair")
-        .subquery()
-    )
-    slide_repair_total, slide_repair_succeeded = (
-        await session.execute(
-            select(
-                func.count().label("total"),
-                func.count().filter(Span.status == "succeeded").label("succeeded"),
-            ).where(
-                span_in_window,
-                Span.span_kind == "task",
-                Span.name.like("slide[%]"),
-                Span.id.in_(select(repaired_parents.c.parent_span_id)),
+    # 只拉页面任务与校验/修复证据；统一口径与评测报告一致。
+    evidence = (
+        (
+            await session.execute(
+                select(Span).where(
+                    span_in_window,
+                    (Span.span_kind == "task") | Span.name.in_(["slide.check", "slide.repair"]),
+                )
             )
         )
-    ).one()
-    slide_first_pass_rate = (
-        round((slide_total - slide_repair_total) / slide_total, 3) if slide_total else None
+        .scalars()
+        .all()
     )
-    slide_repair_success_rate = (
-        round(slide_repair_succeeded / slide_repair_total, 3) if slide_repair_total else None
-    )
+    convergence = summarize_convergence(evidence)
+    slide_repair_total = convergence.repaired
+    slide_first_pass_rate = convergence.first_pass_rate
+    slide_repair_success_rate = convergence.repair_success_rate
 
     # 4) llm token 平均与总和
     avg_prompt, avg_completion, total_prompt, total_completion = (

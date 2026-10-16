@@ -23,11 +23,17 @@ class EvalCategoryScore(BaseModel):
     avg_judge_score: float | None = None
 
 
+class EditCheckPublic(BaseModel):
+    name: str
+    passed: bool
+    detail: str = ""
+
+
 class EvalCaseRow(BaseModel):
     """逐题明细条目：rows JSONB 的元素结构（入库白名单见 app.eval.persistence）。"""
 
     case_id: str
-    category: Literal[tuple(CATEGORIES)]  # type: ignore[valid-type]
+    category: Literal[tuple((*CATEGORIES, "edit"))]  # type: ignore[valid-type]
     ok: bool
     stage: str
     error: str | None = None
@@ -45,8 +51,8 @@ class EvalCaseRow(BaseModel):
     elapsed_seconds: float = 0.0
     # obs#4：trace join spans 聚合的真实 token 与分段耗时
     # （毫秒；slide_durations_ms 为每页 task span 耗时列表）
-    prompt_tokens: int = 0
-    completion_tokens: int = 0
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
     # "trace"：spans 聚合值；"unavailable"：查不到 trace（按 0 展示）
     tokens_source: Literal["trace", "unavailable"] = "unavailable"
     outline_trace_id: uuid.UUID | None = None
@@ -56,7 +62,15 @@ class EvalCaseRow(BaseModel):
     export_duration_ms: int = 0
     # obs#9：成本（人民币元）与计费 AI 生图张数；单价未配置时 cost 为 0
     ai_image_count: int = 0
-    cost: float = 0.0
+    cost: float | None = None
+    trace_id: uuid.UUID | None = None
+    project_id: uuid.UUID | None = None
+    slide_id: uuid.UUID | None = None
+    operations_count: int = 0
+    locked_ids: list[str] = Field(default_factory=list)
+    checks: list[EditCheckPublic] = Field(default_factory=list)
+    measurement_complete: bool = False
+    measurement_issues: list[str] = Field(default_factory=list)
     # obs/10 修复收敛：进入修复轮的页数 / 其中最终成功的页数
     repair_spans: int = 0
     repaired_succeeded: int = 0
@@ -88,11 +102,11 @@ class EvalRunPublic(BaseModel):
     doc_fabricated_numbers: int
     doc_total_numbers: int
     avg_elapsed_seconds: float
-    avg_prompt_tokens: float
-    avg_completion_tokens: float
+    avg_prompt_tokens: float | None
+    avg_completion_tokens: float | None
     # obs#9：avg 为成功题均值（与 token 均值同分母），total 为全部题合计
-    avg_cost: float
-    total_cost: float
+    avg_cost: float | None
+    total_cost: float | None
     retry_slide_rate: float | None
     total_failed_slides: int
     total_slides: int

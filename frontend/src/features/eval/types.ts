@@ -12,11 +12,12 @@ export const CATEGORY_ORDER = ['technology', 'business', 'education', 'documents
 
 export type EvalCategory = (typeof CATEGORY_ORDER)[number]
 
-export const CATEGORY_LABEL: Record<EvalCategory, string> = {
+export const CATEGORY_LABEL: Record<EvalCategory | "edit", string> = {
   technology: '技术类',
   business: '商业类',
   education: '教育类',
   documents: '文档类',
+  edit: '编辑类',
 }
 
 export const RUN_STATUS_LABEL: Record<EvalRun['status'], { label: string; className: string }> = {

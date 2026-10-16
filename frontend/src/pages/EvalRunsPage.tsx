@@ -85,7 +85,8 @@ function RunRow({ run }: { run: EvalRun }) {
         {formatDuration(run.avg_elapsed_seconds)}
       </td>
       <td className="px-4 py-3.5 text-right tabular-nums">
-        {Math.round(run.avg_prompt_tokens + run.avg_completion_tokens).toLocaleString()}
+        {run.avg_prompt_tokens === null || run.avg_completion_tokens === null
+          ? '—' : Math.round(run.avg_prompt_tokens + run.avg_completion_tokens).toLocaleString()}
       </td>
       <td className="px-4 py-3.5">
         <span

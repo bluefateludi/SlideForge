@@ -104,9 +104,7 @@ def build_slide_workflow(generator: SlideGenerator):
                 theme=theme,
                 page_role=payload.page_role,
             )
-            slide = slide.model_copy(
-                update={"layout_tree": layout_tree, "blocks": blocks}
-            )
+            slide = slide.model_copy(update={"layout_tree": layout_tree, "blocks": blocks})
         issues = validate_slide(slide, theme=theme)
         issues.extend(
             check_slide_richness(
@@ -141,7 +139,16 @@ def build_slide_workflow(generator: SlideGenerator):
     graph = StateGraph(SlideWorkflowState)
     graph.add_node("prepare", traced_node("slide.prepare")(prepare))
     graph.add_node("generate", traced_node("slide.generate")(generate))
-    graph.add_node("check", traced_node("slide.check")(check))
+    graph.add_node(
+        "check",
+        traced_node(
+            "slide.check",
+            result_attributes=lambda result: {
+                "quality_passed": not any(is_repair_worthy(issue) for issue in result["issues"]),
+                "quality_issue_count": sum(is_repair_worthy(issue) for issue in result["issues"]),
+            },
+        )(check),
+    )
     graph.add_node("repair", traced_node("slide.repair", attributes=_repair_attributes)(repair))
     graph.add_edge(START, "prepare")
     graph.add_edge("prepare", "generate")

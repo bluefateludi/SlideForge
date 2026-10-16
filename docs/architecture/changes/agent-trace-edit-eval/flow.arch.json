@@ -1,0 +1,167 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "固定页面编辑评测与工具轨迹",
+    "locale": "zh-CN",
+    "animation": "none",
+    "quality_profile": "showcase",
+    "visual_preset": "signal-flow"
+  },
+  "lanes": [
+    {
+      "id": "eval",
+      "label": "固定编辑评测"
+    },
+    {
+      "id": "data",
+      "label": "本地观测"
+    }
+  ],
+  "phases": [
+    {
+      "id": "input",
+      "label": "稳定输入",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "edit",
+      "label": "仅编辑调用模型",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "reporting",
+      "label": "确定性校验与展示",
+      "fromCol": 4,
+      "toCol": 5
+    }
+  ],
+  "mainPath": [
+    "fixture",
+    "prepare",
+    "edit",
+    "tools",
+    "score",
+    "report"
+  ],
+  "nodes": [
+    {
+      "id": "fixture",
+      "lane": "eval",
+      "col": 0,
+      "type": "database",
+      "label": "固定题目",
+      "sublabel": "blocks / tree / locked"
+    },
+    {
+      "id": "prepare",
+      "lane": "eval",
+      "col": 1,
+      "type": "backend",
+      "label": "写入测试页",
+      "sublabel": "核对 API 页面一致"
+    },
+    {
+      "id": "edit",
+      "lane": "eval",
+      "col": 2,
+      "type": "cloud",
+      "label": "AI 编辑",
+      "sublabel": "最多 4 轮工具循环"
+    },
+    {
+      "id": "tools",
+      "lane": "eval",
+      "col": 3,
+      "type": "backend",
+      "label": "工具提案",
+      "sublabel": "只改内存副本"
+    },
+    {
+      "id": "score",
+      "lane": "eval",
+      "col": 4,
+      "type": "security",
+      "label": "严格断言",
+      "sublabel": "目标 / 结果 / 未改块"
+    },
+    {
+      "id": "trace",
+      "lane": "data",
+      "col": 3,
+      "type": "database",
+      "label": "调用轨迹",
+      "sublabel": "Trace / Span / 顺序"
+    },
+    {
+      "id": "measure",
+      "lane": "data",
+      "col": 4,
+      "type": "backend",
+      "label": "编辑用量",
+      "sublabel": "缺失为未知 / 不补零"
+    },
+    {
+      "id": "report",
+      "lane": "eval",
+      "col": 5,
+      "type": "frontend",
+      "label": "编辑报告",
+      "sublabel": "断言与调用瀑布树"
+    }
+  ],
+  "edges": [
+    {
+      "from": "fixture",
+      "to": "prepare"
+    },
+    {
+      "from": "prepare",
+      "to": "edit"
+    },
+    {
+      "from": "edit",
+      "to": "tools"
+    },
+    {
+      "from": "score",
+      "to": "report",
+      "label": "通过或失败"
+    },
+    {
+      "from": "tools",
+      "to": "trace",
+      "role": "async",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "from": "trace",
+      "to": "measure",
+      "variant": "dashed"
+    },
+    {
+      "from": "measure",
+      "to": "report",
+      "variant": "dashed"
+    },
+    {
+      "from": "tools",
+      "to": "score"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "稳定比较编辑能力",
+      "items": [
+        "固定页面随题集哈希版本化；移除大纲、正文与生图前置调用",
+        "离线测试用脚本模型；真实评测仍需模型，本次未执行"
+      ]
+    }
+  ]
+}

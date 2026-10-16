@@ -1,20 +1,96 @@
 {
   "id": "replace/update-number",
-  "instruction": "把本页中最适合展示规模的那个数字改成「42%」，只改最相关的一处。",
-  "seed": {
-    "topic": "一家新能源汽车品牌的季度销量快报：交付量环比大增，订单转化率是核心指标，渠道下沉贡献显著。",
-    "page_count": 2,
-    "title": "季度销量快报"
+  "instruction": "只把 revenue 指标改为 42%，保留指标标签和备注，其余内容不变。",
+  "title": "固定页面编辑评测",
+  "initial_slide": {
+    "id": "fixture-slide",
+    "layout_id": "blank",
+    "layout_mode": "flex",
+    "blocks": [
+      {
+        "id": "title",
+        "slot_id": "title",
+        "type": "text",
+        "text": "季度经营汇报"
+      },
+      {
+        "id": "body",
+        "slot_id": "body",
+        "type": "bullets",
+        "items": [
+          "营收保持增长，客户续约率持续提高",
+          "产品投入增加，重点优化交付效率",
+          "下季度加强客户服务与渠道建设"
+        ]
+      },
+      {
+        "id": "revenue",
+        "slot_id": "revenue",
+        "type": "kpi",
+        "value": "37%",
+        "label": "同比增长",
+        "note": "统计口径：本季度"
+      },
+      {
+        "id": "visual",
+        "slot_id": "visual",
+        "type": "image",
+        "alt": "经营情况示意",
+        "source": "placeholder",
+        "url": null
+      }
+    ],
+    "layout_tree": {
+      "id": "root",
+      "type": "column",
+      "children": [
+        {
+          "id": "leaf-title",
+          "type": "block",
+          "block_id": "title",
+          "text_style": "title",
+          "grow": 0.6
+        },
+        {
+          "id": "content-row",
+          "type": "row",
+          "children": [
+            {
+              "id": "leaf-body",
+              "type": "block",
+              "block_id": "body",
+              "grow": 2
+            },
+            {
+              "id": "leaf-visual",
+              "type": "block",
+              "block_id": "visual"
+            }
+          ],
+          "grow": 2
+        },
+        {
+          "id": "leaf-revenue",
+          "type": "block",
+          "block_id": "revenue",
+          "grow": 0.7
+        }
+      ]
+    }
   },
-  "lock": "none",
   "expect": {
     "op_types": [
       "replace"
     ],
-    "max_ops": 1,
-    "after_contains": [
-      "42%"
+    "target_block_ids": [
+      "revenue"
     ],
-    "locked_zero_edit": true
+    "expected_after": {
+      "revenue": {
+        "value": "42%",
+        "label": "同比增长",
+        "note": "统计口径：本季度"
+      }
+    }
   }
 }

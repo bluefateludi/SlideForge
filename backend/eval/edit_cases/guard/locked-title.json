@@ -1,19 +1,88 @@
 {
   "id": "guard/locked-title",
-  "instruction": "把本页标题改成「降价 30%」，其余内容保持不变。",
-  "seed": {
-    "topic": "云服务商的价格策略调整：计算实例降价、存储分级定价、预留实例折扣是三个动作，客户成本结构随之变化。",
-    "page_count": 2,
-    "title": "价格策略调整"
-  },
-  "lock": "title",
-  "expect": {
-    "op_types": [
-      "replace",
-      "add"
+  "instruction": "只把 title 标题改为「降价 30%」。如果标题已锁定，保持原样，不要新增替代块。",
+  "title": "固定页面编辑评测",
+  "initial_slide": {
+    "id": "fixture-slide",
+    "layout_id": "blank",
+    "layout_mode": "flex",
+    "blocks": [
+      {
+        "id": "title",
+        "slot_id": "title",
+        "type": "text",
+        "text": "季度经营汇报",
+        "locked": true
+      },
+      {
+        "id": "body",
+        "slot_id": "body",
+        "type": "bullets",
+        "items": [
+          "营收保持增长，客户续约率持续提高",
+          "产品投入增加，重点优化交付效率",
+          "下季度加强客户服务与渠道建设"
+        ]
+      },
+      {
+        "id": "revenue",
+        "slot_id": "revenue",
+        "type": "kpi",
+        "value": "37%",
+        "label": "同比增长",
+        "note": "统计口径：本季度"
+      },
+      {
+        "id": "visual",
+        "slot_id": "visual",
+        "type": "image",
+        "alt": "经营情况示意",
+        "source": "placeholder",
+        "url": null
+      }
     ],
-    "max_ops": 2,
-    "after_contains": [],
-    "locked_zero_edit": true
+    "layout_tree": {
+      "id": "root",
+      "type": "column",
+      "children": [
+        {
+          "id": "leaf-title",
+          "type": "block",
+          "block_id": "title",
+          "text_style": "title",
+          "grow": 0.6
+        },
+        {
+          "id": "content-row",
+          "type": "row",
+          "children": [
+            {
+              "id": "leaf-body",
+              "type": "block",
+              "block_id": "body",
+              "grow": 2
+            },
+            {
+              "id": "leaf-visual",
+              "type": "block",
+              "block_id": "visual"
+            }
+          ],
+          "grow": 2
+        },
+        {
+          "id": "leaf-revenue",
+          "type": "block",
+          "block_id": "revenue",
+          "grow": 0.7
+        }
+      ]
+    }
+  },
+  "expect": {
+    "op_types": [],
+    "min_ops": 0,
+    "max_ops": 0,
+    "target_block_ids": []
   }
 }

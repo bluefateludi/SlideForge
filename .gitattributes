@@ -1,0 +1,3 @@
+# Preserve diagram receipt identity on Windows checkouts.
+/docs/architecture/changes/agent-trace-edit-eval/*.json text eol=lf
+/docs/architecture/changes/agent-trace-edit-eval/*.html text eol=lf

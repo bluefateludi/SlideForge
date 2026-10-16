@@ -368,9 +368,7 @@ async def test_tool_calls_leave_tool_spans(
         ),
         AIMessage(content="完成"),
     ]
-    generator = DeepSeekSlideEditGenerator(
-        model=ScriptedToolModel(messages), api_key="fake-key"
-    )
+    generator = DeepSeekSlideEditGenerator(model=ScriptedToolModel(messages), api_key="fake-key")
     _patch_generator(monkeypatch, generator)
 
     headers = await _sign_up(client)
@@ -408,9 +406,7 @@ async def test_tool_rejected_records_error_code(
         ),
         AIMessage(content="完成"),
     ]
-    generator = DeepSeekSlideEditGenerator(
-        model=ScriptedToolModel(messages), api_key="fake-key"
-    )
+    generator = DeepSeekSlideEditGenerator(model=ScriptedToolModel(messages), api_key="fake-key")
     _patch_generator(monkeypatch, generator)
 
     headers = await _sign_up(client)
@@ -433,6 +429,6 @@ async def test_tool_rejected_records_error_code(
     span = tool_spans[0]
     assert span.status == "failed"
     assert span.error_code == "tool_rejected"
-    assert "已人工修改" in (span.error_message or "")
+    assert span.error_message == "Edit tool rejected the operation"
     # 被拒的改动不进提案
     assert response.json()["operations"] == []

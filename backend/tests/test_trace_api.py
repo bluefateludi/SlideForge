@@ -541,9 +541,7 @@ async def test_trace_detail_serializes_image_spans_and_cost(
 
     async with async_session_factory() as session:
         trace_id = uuid.uuid4()
-        session.add(
-            Trace(id=trace_id, kind="deck", status="succeeded", project_id=project_id)
-        )
+        session.add(Trace(id=trace_id, kind="deck", status="succeeded", project_id=project_id))
         await session.flush()
         spans = [
             Span(
@@ -605,9 +603,7 @@ async def test_trace_detail_serializes_image_spans_and_cost(
 
 
 @pytest.mark.asyncio
-async def test_metrics_summary_has_repair_convergence(
-    client: AsyncClient, seeded: dict
-) -> None:
+async def test_metrics_summary_has_repair_convergence(client: AsyncClient, seeded: dict) -> None:
     """obs/10：指标聚合新增修复收敛字段。
 
     seeded 的 deck trace 里 slide[2] 带 slide.repair 子 span（修复轮 1），
@@ -618,7 +614,6 @@ async def test_metrics_summary_has_repair_convergence(
     assert response.status_code == 200
     body = response.json()
     assert body["slide_repair_total"] >= 1
-    assert body["slide_first_pass_rate"] is not None
-    assert 0.0 <= body["slide_first_pass_rate"] <= 1.0
-    if body["slide_repair_total"] > 0:
-        assert body["slide_repair_success_rate"] is not None
+    # seeded 是历史样式，没有显式质量校验，不能从 task 成功推断通过。
+    assert body["slide_first_pass_rate"] is None
+    assert body["slide_repair_success_rate"] is None

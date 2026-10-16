@@ -1,20 +1,94 @@
 {
   "id": "replace/retitle-page",
-  "instruction": "把这一页的标题改为「营收翻倍之路」，其余内容保持原样，不要新增或删除块。",
-  "seed": {
-    "topic": "一家 SaaS 公司的年度经营汇报：ARR 增长、客户留存率提升与续费扩张是三条主线，成本侧人效比改善明显。",
-    "page_count": 2,
-    "title": "年度经营汇报"
+  "instruction": "只把 title 块标题改为「营收翻倍之路」，其余内容保持不变。",
+  "title": "固定页面编辑评测",
+  "initial_slide": {
+    "id": "fixture-slide",
+    "layout_id": "blank",
+    "layout_mode": "flex",
+    "blocks": [
+      {
+        "id": "title",
+        "slot_id": "title",
+        "type": "text",
+        "text": "季度经营汇报"
+      },
+      {
+        "id": "body",
+        "slot_id": "body",
+        "type": "bullets",
+        "items": [
+          "营收保持增长，客户续约率持续提高",
+          "产品投入增加，重点优化交付效率",
+          "下季度加强客户服务与渠道建设"
+        ]
+      },
+      {
+        "id": "revenue",
+        "slot_id": "revenue",
+        "type": "kpi",
+        "value": "37%",
+        "label": "同比增长",
+        "note": "统计口径：本季度"
+      },
+      {
+        "id": "visual",
+        "slot_id": "visual",
+        "type": "image",
+        "alt": "经营情况示意",
+        "source": "placeholder",
+        "url": null
+      }
+    ],
+    "layout_tree": {
+      "id": "root",
+      "type": "column",
+      "children": [
+        {
+          "id": "leaf-title",
+          "type": "block",
+          "block_id": "title",
+          "text_style": "title",
+          "grow": 0.6
+        },
+        {
+          "id": "content-row",
+          "type": "row",
+          "children": [
+            {
+              "id": "leaf-body",
+              "type": "block",
+              "block_id": "body",
+              "grow": 2
+            },
+            {
+              "id": "leaf-visual",
+              "type": "block",
+              "block_id": "visual"
+            }
+          ],
+          "grow": 2
+        },
+        {
+          "id": "leaf-revenue",
+          "type": "block",
+          "block_id": "revenue",
+          "grow": 0.7
+        }
+      ]
+    }
   },
-  "lock": "body",
   "expect": {
     "op_types": [
       "replace"
     ],
-    "max_ops": 2,
-    "after_contains": [
-      "营收翻倍之路"
+    "target_block_ids": [
+      "title"
     ],
-    "locked_zero_edit": true
+    "expected_after": {
+      "title": {
+        "text": "营收翻倍之路"
+      }
+    }
   }
 }
