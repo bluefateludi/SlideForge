@@ -20,10 +20,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Font downloads depend on their manifest/script, not business source files.
 COPY scripts/fetch_fonts.py scripts/fonts.json ./scripts/
 ARG ALLOW_MISSING_FONTS=false
-RUN case "$ALLOW_MISSING_FONTS" in \
-      false) python scripts/fetch_fonts.py ;; \
-      true) python scripts/fetch_fonts.py --allow-missing ;; \
-      *) echo "ALLOW_MISSING_FONTS must be true or false" >&2; exit 1 ;; \
+ARG SKIP_FONT_DOWNLOAD=false
+RUN case "$SKIP_FONT_DOWNLOAD:$ALLOW_MISSING_FONTS" in \
+      true:true|true:false) echo "warning: font download skipped; text measurement uses estimates" ;; \
+      false:false) python scripts/fetch_fonts.py ;; \
+      false:true) python scripts/fetch_fonts.py --allow-missing ;; \
+      *) echo "SKIP_FONT_DOWNLOAD and ALLOW_MISSING_FONTS must be true or false" >&2; exit 1 ;; \
     esac
 
 COPY . .

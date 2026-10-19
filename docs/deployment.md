@@ -1,5 +1,7 @@
 # Ubuntu 单机生产部署
 
+构建依赖长时间下载、字体请求超时、容器启动或运行慢时，见 [Docker 部署缓慢排查手册](docker-deployment-troubleshooting.md)。GitHub 拉取与 SSH 问题见 [代码拉取排查手册](github-pull-troubleshooting.md)。
+
 适用于腾讯云 Ubuntu 2 核 4GB 等单机环境。使用 Docker Engine、Compose 与 Buildx 插件，服务器不需要额外安装 Python 或 Node。Docker 安装参考 [官方 Ubuntu 文档](https://docs.docker.com/engine/install/ubuntu/)。先确认 `sudo docker compose version`、`sudo docker buildx version` 可用，并执行 `sudo systemctl enable --now docker`。
 
 下文在仓库根目录执行，示例路径为 `/workspace/ai-ppt-generator`。代码需先提交到服务器可以获取的仓库。不要把本地 `.venv`、`node_modules` 或密钥打包到镜像。
@@ -83,7 +85,8 @@ dc up -d --no-build
 - 依赖层失效时，BuildKit 挂载的 uv 缓存可减少重复下载，但换服务器、清理缓存或换版本仍需下载。
 - 固定 Python / uv 版本和 digest；定期主动升级并验证，不依赖 `latest`。
 - 字体来自 `backend/scripts/fonts.json` 的固定提交，SHA-256 验证、30 秒超时及最多 3 次尝试；默认缺字体就构建失败。字体下载受网络状况影响。
-- 明确接受缺字体估算时，才使用 `dc build --build-arg ALLOW_MISSING_FONTS=true api`。这是降级镜像，构建日志会标明，不能作为正常字体验收通过。
+- 默认下载失败会停止构建。`dc build --build-arg ALLOW_MISSING_FONTS=true api` 仍尝试下载和重试，只是最终允许缺字体。
+- 要完全跳过字体网络请求，使用 `dc build --build-arg SKIP_FONT_DOWNLOAD=true api`。它不会执行字体脚本，会立即打印跳过提示并继续；缺字体时文字溢出检测使用估算，生成、编辑及 PPTX 导出仍可使用。这是降级镜像，不能作为正常字体验收通过。之后恢复精确度量时，不传该参数重新构建。
 
 首次构建约 6 分钟并不反常。用 `dc --progress plain build api` 收集逐层耗时，分别比较首次构建、无修改重建、只改源码重建。没有实测前不承诺具体耗时；前端构建单独计时。
 
