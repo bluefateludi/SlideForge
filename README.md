@@ -234,14 +234,17 @@ make lint         # Ruff 静态检查
 
 ### 7. 部署
 
-项目提供了 `docker-compose.prod.yml` + `backend/Dockerfile` + `nginx.conf`，可在任意安装了 Docker 的云服务器上一键拉起 Postgres + Redis + API + Worker + Nginx 五个容器。服务器上安全组放开 39880 端口，然后：
+项目提供 `docker-compose.prod.yml` + `backend/Dockerfile` + `nginx.conf`，运行 Postgres、Redis、API、Worker、Nginx 五个容器。API 与 Worker 共用一个后端镜像，启动时不安装依赖，服务自动重启。服务器安全组按需放开 39880 端口。完整的 Ubuntu 安装、前端打包、升级与数据权限迁移步骤见 [生产部署指南](docs/deployment.md)。
 
 ```bash
 cp backend/.env.example backend/.env
 # 生产环境必改：APP_ENV=production、LLM_API_KEY、JWT_SECRET（openssl rand -hex 32）
+# 在根目录 .env 中设置 POSTGRES_PASSWORD；先按部署指南构建 frontend/dist。
 
-docker compose -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.prod.yml run --rm api uv run alembic upgrade head
+docker compose -f docker-compose.prod.yml build api
+docker compose -f docker-compose.prod.yml up -d --wait postgres redis
+docker compose -f docker-compose.prod.yml run --rm --no-deps api alembic upgrade head
+docker compose -f docker-compose.prod.yml up -d --no-build
 ```
 
 浏览器打开 `http://你的公网IP:39880`。

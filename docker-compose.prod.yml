@@ -1,5 +1,14 @@
+x-runtime: &runtime
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
   postgres:
+    <<: *runtime
     image: postgres:16-alpine
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -14,7 +23,11 @@ services:
       retries: 5
 
   redis:
+    <<: *runtime
     image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -22,31 +35,42 @@ services:
       retries: 5
 
   api:
+    <<: *runtime
+    image: ${SLIDEFORGE_IMAGE:-slideforge-backend:local}
     build: ./backend
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://aippt:${POSTGRES_PASSWORD:-aippt}@postgres:5432/aippt
       REDIS_URL: redis://redis:6379/0
+      STORAGE_LOCAL_DIR: /data/storage
+      SLIDE_CONCURRENCY: "2"
     volumes:
       - ./shared:/shared:ro
+      - storage_data:/data/storage
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   worker:
-    build: ./backend
-    command: ["uv", "run", "arq", "app.worker.settings.WorkerSettings"]
+    <<: *runtime
+    image: ${SLIDEFORGE_IMAGE:-slideforge-backend:local}
+    pull_policy: never
+    command: ["arq", "app.worker.settings.WorkerSettings"]
     env_file: ./backend/.env
     environment:
       DATABASE_URL: postgresql+asyncpg://aippt:${POSTGRES_PASSWORD:-aippt}@postgres:5432/aippt
       REDIS_URL: redis://redis:6379/0
+      STORAGE_LOCAL_DIR: /data/storage
+      SLIDE_CONCURRENCY: "2"
     volumes:
       - ./shared:/shared:ro
+      - storage_data:/data/storage
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
 
   nginx:
+    <<: *runtime
     image: nginx:alpine
     ports:
       - "39880:80"
@@ -58,3 +82,5 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
+  storage_data:
