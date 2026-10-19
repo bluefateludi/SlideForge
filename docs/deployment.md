@@ -84,9 +84,9 @@ dc up -d --no-build
 - 修改 `pyproject.toml` 后要提交更新的 `uv.lock`；不一致时构建失败。
 - 依赖层失效时，BuildKit 挂载的 uv 缓存可减少重复下载，但换服务器、清理缓存或换版本仍需下载。
 - 固定 Python / uv 版本和 digest；定期主动升级并验证，不依赖 `latest`。
-- 字体来自 `backend/scripts/fonts.json` 的固定提交，SHA-256 验证、30 秒超时及最多 3 次尝试；默认缺字体就构建失败。字体下载受网络状况影响。
-- 默认下载失败会停止构建。`dc build --build-arg ALLOW_MISSING_FONTS=true api` 仍尝试下载和重试，只是最终允许缺字体。
-- 要完全跳过字体网络请求，使用 `dc build --build-arg SKIP_FONT_DOWNLOAD=true api`。它不会执行字体脚本，会立即打印跳过提示并继续；缺字体时文字溢出检测使用估算，生成、编辑及 PPTX 导出仍可使用。这是降级镜像，不能作为正常字体验收通过。之后恢复精确度量时，不传该参数重新构建。
+- 默认 `SKIP_FONT_DOWNLOAD=true`，普通 `dc build api` 不执行字体脚本、不请求 GitHub。可选字体不会阻断默认构建；文字溢出检测使用估算，缺字体本身只产生导出前检查 warning，不阻断生成、编辑或导出。实际内容仍需通过其他质量检查。
+- 需要精确度量时，显式执行 `dc build --build-arg SKIP_FONT_DOWNLOAD=false api`。字体来自 `backend/scripts/fonts.json` 的固定提交，SHA-256 验证、30 秒超时及最多 3 次尝试；该模式下载失败会停止构建。
+- 若选择“尝试下载但最终允许缺字体”，需同时传入 `--build-arg SKIP_FONT_DOWNLOAD=false --build-arg ALLOW_MISSING_FONTS=true`。它仍会等待下载和重试，不适合需要立刻跳过网络请求的部署。
 
 首次构建约 6 分钟并不反常。用 `dc --progress plain build api` 收集逐层耗时，分别比较首次构建、无修改重建、只改源码重建。没有实测前不承诺具体耗时；前端构建单独计时。
 

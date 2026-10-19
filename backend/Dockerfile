@@ -20,7 +20,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Font downloads depend on their manifest/script, not business source files.
 COPY scripts/fetch_fonts.py scripts/fonts.json ./scripts/
 ARG ALLOW_MISSING_FONTS=false
-ARG SKIP_FONT_DOWNLOAD=false
+# Optional measurement fonts must not block a normal deployment.
+ARG SKIP_FONT_DOWNLOAD=true
 RUN case "$SKIP_FONT_DOWNLOAD:$ALLOW_MISSING_FONTS" in \
       true:true|true:false) echo "warning: font download skipped; text measurement uses estimates" ;; \
       false:false) python scripts/fetch_fonts.py ;; \
